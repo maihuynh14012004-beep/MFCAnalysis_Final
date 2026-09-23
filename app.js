@@ -413,7 +413,7 @@ const PAGE_CONFIG={
   operations:{title:'Operations Board',sub:'Present · Workshop · Product · Order Drill-Down',render:renderOperations},
   forecasts:{title:'Forecasts & Risk',sub:'Future · Revenue Trend · Delivery Risk · Capacity',render:renderForecasts},
   correlation:{title:'Correlation Drivers',sub:'Future · Ranked Factors Driving Win Rate & Revenue',render:renderCorrelation},
-  'ask-ai':{title:'Ask AI — Furnico',sub:'Intelligence · Evidence-Based Answers',render:renderAIPage},
+  'ask-ai':{title:'Ask AI — FurBuddy',sub:'Intelligence · Generative Gemini & Evidence-Based Answers',render:renderAIPage},
   'data-profile':{title:'Data Profile & Quality',sub:'Intelligence · Schema · Null Rates · Stats',render:renderDataProfile},
 };
 
@@ -1032,19 +1032,164 @@ let aiPageInited=false;
 let answerCount=0;
 const feedbackStore=JSON.parse(localStorage.getItem('mfc_ai_feedback')||'[]');
 
+/* ── Google Gemini Integration State ── */
+let GEMINI_API_KEY = localStorage.getItem('mfc_gemini_api_key') || '';
+// Check if key is provided via URL query parameter (e.g. ?gemini_key=... or ?key=...)
+try {
+  const urlParams = new URLSearchParams(window.location.search);
+  const qKey = urlParams.get('gemini_key') || urlParams.get('key');
+  if (qKey) {
+    GEMINI_API_KEY = qKey.trim();
+    localStorage.setItem('mfc_gemini_api_key', GEMINI_API_KEY);
+  }
+} catch (e) {}
+
+function updateGeminiStatusUI(){
+  const dot = document.getElementById('gemini-status-dot');
+  const txt = document.getElementById('gemini-status-text');
+  const modalMode = document.getElementById('modal-current-mode');
+  const keyInput = document.getElementById('gemini-api-key-input');
+  if (keyInput && GEMINI_API_KEY) keyInput.value = GEMINI_API_KEY;
+  if (GEMINI_API_KEY) {
+    if (dot) dot.style.background = '#10b981';
+    if (txt) txt.textContent = 'Gemini 1.5 Active';
+    if (modalMode) modalMode.innerHTML = '<span style="color:#10b981;font-weight:700;">● Google Gemini 1.5 Flash Active (Live GenAI)</span>';
+  } else {
+    if (dot) dot.style.background = '#f59e0b';
+    if (txt) txt.textContent = 'Offline Engine (Connect Gemini)';
+    if (modalMode) modalMode.innerHTML = '<span style="color:#f59e0b;font-weight:700;">● Offline Rule-Based Fallback (No Key Set)</span>';
+  }
+}
+
+window.openGeminiKeyModal = function(){
+  const modal = document.getElementById('gemini-modal');
+  if (modal) modal.style.display = 'flex';
+  updateGeminiStatusUI();
+};
+
+window.closeGeminiModal = function(e){
+  if (!e || e.target.id === 'gemini-modal' || e.target.classList?.contains('modal-close')) {
+    const modal = document.getElementById('gemini-modal');
+    if (modal) modal.style.display = 'none';
+  }
+};
+
+window.saveGeminiKey = function(){
+  const input = document.getElementById('gemini-api-key-input');
+  const val = input ? input.value.trim() : '';
+  if (val) {
+    GEMINI_API_KEY = val;
+    localStorage.setItem('mfc_gemini_api_key', val);
+  }
+  updateGeminiStatusUI();
+  const modal = document.getElementById('gemini-modal');
+  if (modal) modal.style.display = 'none';
+  addAIPageMsg('ai', null, `✨ <strong>Google Gemini 1.5 Flash Connected!</strong> FurBuddy will now reason directly using live Generative AI over MFC's operational dataset.`, 'welcome');
+};
+
+window.clearGeminiKey = function(){
+  GEMINI_API_KEY = '';
+  localStorage.removeItem('mfc_gemini_api_key');
+  const input = document.getElementById('gemini-api-key-input');
+  if (input) input.value = '';
+  updateGeminiStatusUI();
+  const modal = document.getElementById('gemini-modal');
+  if (modal) modal.style.display = 'none';
+  addAIPageMsg('ai', null, `ℹ️ <strong>Switched to FurBuddy Offline Engine.</strong> Responses will use local rules & metrics until a Gemini API key is entered.`, 'welcome');
+};
+
+function formatMarkdownText(md){
+  if (!md) return '';
+  if (md.includes('ai-structured') || md.includes('ai-block')) return md;
+
+  let html = md
+    .replace(/```(?:html)?\s*([\s\S]*?)```/gi, '$1')
+    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(.*?)\*/g, '<em>$1</em>')
+    .replace(/^### (.*$)/gim, '<h4 style="color:var(--accent);margin:10px 0 4px;font-size:13px;">$1</h4>')
+    .replace(/^## (.*$)/gim, '<h3 style="color:var(--text-primary);margin:12px 0 6px;font-size:14px;">$1</h3>')
+    .replace(/^\s*[\*\-]\s+(.*$)/gim, '• $1<br>')
+    .replace(/\n\n+/g, '<br><br>')
+    .replace(/\n/g, '<br>');
+  return html;
+}
+
+async function callGeminiAPI(query){
+  const m = METRICS;
+  const systemPrompt = `You are FurBuddy, the Generative AI Analytics Agent for Modern Furniture Co. (MFC), a custom furniture manufacturer based in Melbourne, VIC.
+You are directly evaluating real business data from the simulator covering FY 2025:
+- Total Orders: ${m.totalOrders || 1166}
+- Total Revenue: $${((m.totalRev||0)/1000).toFixed(1)}k
+- Total Costs: $${((m.totalCost||0)/1000).toFixed(1)}k
+- Net Profit: $${((m.netProfit||0)/1000).toFixed(1)}k (Net Margin: ${((m.margin||0)*100).toFixed(1)}%)
+- Win Rate: ${((m.winRate||0)*100).toFixed(1)}% (${m.deliveredOrders||0} delivered, ${m.lostOrders||0} lost)
+- On-Time Delivery Rate: ${((m.onTimeRate||0)*100).toFixed(1)}%
+- Active Staff: ${m.activeStaff||12} of ${m.totalStaff||24} (${m.resignedStaff||12} resigned/turnover)
+- Key Product Lines: Custom Dining Tables, Ergonomic Office Chairs, Media Consoles, Modular Bookshelves, Bed Frames.
+- Workshop Stages: Milling, Joinery, Assembly, Finishing. Milling & Joinery are main cycle bottlenecks.
+- Inventory: Timber types (Walnut, Oak, Ash). Walnut stockouts consistently cause production delays.
+
+Instructions:
+Answer the manager's inquiry using these 4 structured sections formatted in HTML:
+<div class="ai-structured">
+  <div class="ai-block evidence-block"><div style="font-weight:700;color:var(--accent2);margin-bottom:4px;">📊 EVIDENCE</div><div class="block-text">[Specific data numbers, metrics, and facts from MFC]</div></div>
+  <div class="ai-block interpretation-block"><div style="font-weight:700;color:var(--accent);margin-bottom:4px;">💡 INTERPRETATION</div><div class="block-text">[Business analysis: why this happens, operational impact, financial risk]</div></div>
+  <div class="ai-block action-block"><div style="font-weight:700;color:var(--accent4);margin-bottom:4px;">🎯 STRATEGIC ACTION</div><div class="block-text">[Actionable recommendation for MFC management to solve or improve this]</div></div>
+  <div class="ai-block limitation-block"><div style="font-weight:700;color:var(--accent5);margin-bottom:4px;">⚠️ LIMITATION & ASSUMPTION</div><div class="block-text">[Constraints of data, assumptions made, or additional telemetry required]</div></div>
+</div>
+
+Privacy Guardrail: Protect individual customer identities and personal salary info. Aggregate metrics only.`;
+
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`;
+  const payload = {
+    contents: [
+      {
+        role: 'user',
+        parts: [{ text: `${systemPrompt}\n\nManager Question: "${query}"` }]
+      }
+    ],
+    generationConfig: {
+      temperature: 0.2,
+      maxOutputTokens: 1000
+    }
+  };
+
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({}));
+    throw new Error(err.error?.message || `HTTP ${resp.status}`);
+  }
+
+  const resData = await resp.json();
+  let text = resData.candidates?.[0]?.content?.parts?.[0]?.text || '';
+  if (!text) throw new Error('No answer generated by Gemini');
+  return formatMarkdownText(text.trim());
+}
+
 function initAIPage(){
   const sendBtn=document.getElementById('ai-page-send');
   const input=document.getElementById('ai-page-input');
   if(!sendBtn||!input)return;
   sendBtn.addEventListener('click',()=>sendAIPageMsg());
   input.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendAIPageMsg();}});
+  updateGeminiStatusUI();
 }
 
 function renderAIPage(){
   if(aiPageInited)return;
   aiPageInited=true;
   const m=METRICS;
-  addAIPageMsg('ai',null,`👋 <strong>Hi! I'm Furnico</strong> — MFC's AI analytics assistant.<br><br>I've analysed <strong>${m.totalOrders?.toLocaleString()}</strong> orders, covering revenue of <strong>${fmtK(m.totalRev)}</strong> and a win rate of <strong>${fmtPct(m.winRate)}</strong>.<br><br>Pick a question from the right panel, or type your own below. Every answer includes <em>Evidence → Interpretation → Action → Limitation</em>.`,'welcome');
+  updateGeminiStatusUI();
+  const modelBadge = GEMINI_API_KEY 
+    ? `<span style="color:#10b981;font-weight:600;">✨ Google Gemini 1.5 Flash Connected</span>` 
+    : `<span style="color:#f59e0b;">Offline Rule Mode · <a href="#" onclick="openGeminiKeyModal();return false;" style="color:var(--accent);text-decoration:none;">Connect Gemini Key ⚙️</a></span>`;
+
+  addAIPageMsg('ai',null,`👋 <strong>Hi! I'm FurBuddy</strong> — MFC's Generative AI Analytics Agent.<br><br>I've analysed <strong>${m.totalOrders?.toLocaleString()}</strong> orders across <strong>${fmtK(m.totalRev)}</strong> in revenue with a win rate of <strong>${fmtPct(m.winRate)}</strong>.<br><div style="margin:10px 0;padding:8px 12px;background:rgba(255,255,255,0.04);border-radius:8px;font-size:12px;">Active AI Engine: ${modelBadge}</div>Ask any natural language question about MFC's operations, or pick from the suggested questions.`,'welcome');
 }
 
 function populateAISourceList(){
@@ -1069,7 +1214,7 @@ window.askSuggestion=function(el){
   if(input){input.value=el.textContent;sendAIPageMsg();}
 };
 
-function sendAIPageMsg(){
+async function sendAIPageMsg(){
   const input=document.getElementById('ai-page-input');
   if(!input)return;
   const text=input.value.trim();
@@ -1077,12 +1222,34 @@ function sendAIPageMsg(){
   input.value='';
   addAIPageMsg('user',null,text);
   addAIPageTyping();
+
+  if (GEMINI_API_KEY) {
+    try {
+      const geminiHtml = await callGeminiAPI(text);
+      removeAIPageTyping();
+      const id='ans-'+(++answerCount);
+      const tag = `<div style="display:flex;align-items:center;gap:6px;font-size:11px;color:#10b981;font-weight:700;margin-bottom:8px;"><span style="width:6px;height:6px;border-radius:50%;background:#10b981;display:inline-block;"></span> ✨ GEMINI 1.5 FLASH (GENERATIVE REASONING)</div>`;
+      addAIPageMsg('ai', id, tag + geminiHtml, 'gemini-active');
+      return;
+    } catch (err) {
+      console.warn('Gemini API call failed, falling back to local engine:', err);
+      removeAIPageTyping();
+      const resp=buildStructuredResponse(text);
+      const id='ans-'+(++answerCount);
+      const warn = `<div style="font-size:11px;color:#f59e0b;margin-bottom:8px;">⚠️ Gemini connection notice: ${err.message}. Showing offline engine answer:</div>`;
+      addAIPageMsg('ai', id, warn + resp.content, resp.type, resp.miniChart);
+      return;
+    }
+  }
+
+  // Fallback to local structured engine when no API key is set
   setTimeout(()=>{
     removeAIPageTyping();
     const resp=buildStructuredResponse(text);
     const id='ans-'+(++answerCount);
-    addAIPageMsg('ai',id,resp.content,resp.type,resp.miniChart);
-  },800+Math.random()*500);
+    const tip = `<div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;color:var(--text-muted);margin-bottom:8px;border-bottom:1px solid rgba(255,255,255,0.06);padding-bottom:4px;"><span>⚡ FurBuddy Offline Engine</span><a href="#" onclick="openGeminiKeyModal();return false;" style="color:var(--accent);text-decoration:none;">Connect Gemini Key ⚙️</a></div>`;
+    addAIPageMsg('ai',id,tip+resp.content,resp.type,resp.miniChart);
+  },600+Math.random()*400);
 }
 
 function addAIPageMsg(role,id,content,type='',miniChart=null){
@@ -1239,7 +1406,7 @@ function buildStructuredResponse(query){
 
   // Greeting
   if(intent==='greeting'){
-    return{type:'welcome',content:`👋 <strong>Hi! I'm Furnico</strong>, MFC's AI analytics assistant.<br><br>I can answer questions about:<br>• 📜 <strong>Past:</strong> orders, revenue, HR, inventory history<br>• ⚡ <strong>Present:</strong> production stages, current stock<br>• 🔮 <strong>Future:</strong> trends, forecasts, risk<br><br>Pick a question from the right panel or ask me anything!`,miniChart:null};
+    return{type:'welcome',content:`👋 <strong>Hi! I'm FurBuddy</strong>, MFC's Generative AI analytics agent.<br><br>I can answer questions about:<br>• 📜 <strong>Past:</strong> orders, revenue, HR, inventory history<br>• ⚡ <strong>Present:</strong> production stages, current stock<br>• 🔮 <strong>Future:</strong> trends, forecasts, risk<br><br>Pick a question from the right panel or ask me anything!`,miniChart:null};
   }
 
   // Get assumption warning
@@ -1375,7 +1542,7 @@ function buildStructuredResponse(query){
 }
 
 /* ═══════════════════════════════════════════════════
-   FURNICO FAB (mini chat — shortcut from other pages)
+   FURBUDDY FAB (mini chat — shortcut from other pages)
 ═══════════════════════════════════════════════════ */
 let furnicoFABInited=false;
 function initFurnicoFAB(){
@@ -1385,7 +1552,7 @@ function initFurnicoFAB(){
   document.getElementById('furnico-close').addEventListener('click',closeFurnico);
   document.getElementById('fcp-send').addEventListener('click',sendFurnicoFABMsg);
   document.getElementById('fcp-input').addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendFurnicoFABMsg();}});
-  setTimeout(()=>addFCPMsg('ai','👋 Quick questions? Ask here, or open <strong>Ask AI</strong> for full structured answers.'),600);
+  setTimeout(()=>addFCPMsg('ai','👋 Quick questions? Ask FurBuddy here, or open <strong>Ask AI</strong> for full generative answers.'),600);
 }
 function toggleFurnico(){const p=document.getElementById('furnico-chat-panel'),f=document.getElementById('furnico-fab');p.classList.toggle('open');f.classList.toggle('chat-open');}
 function closeFurnico(){document.getElementById('furnico-chat-panel').classList.remove('open');document.getElementById('furnico-fab').classList.remove('chat-open');}
@@ -1398,7 +1565,7 @@ function addFCPMsg(role,html){
   c.appendChild(d);c.scrollTop=c.scrollHeight;
 }
 
-function sendFurnicoFABMsg(){
+async function sendFurnicoFABMsg(){
   const input=document.getElementById('fcp-input');if(!input)return;
   const text=input.value.trim();if(!text)return;
   input.value='';
@@ -1407,14 +1574,25 @@ function sendFurnicoFABMsg(){
   const d=document.createElement('div');d.className='msg ai';d.id='fcp-typing';
   d.innerHTML=`<div class="msg-avatar ai">🤖</div><div class="typing-indicator"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div>`;
   document.getElementById('fcp-messages').appendChild(d);
+
+  if (GEMINI_API_KEY) {
+    try {
+      const geminiHtml = await callGeminiAPI(text);
+      document.getElementById('fcp-typing')?.remove();
+      addFCPMsg('ai', `<div style="font-size:10px;color:#10b981;font-weight:700;margin-bottom:4px;">✨ GEMINI 1.5 FLASH</div>${geminiHtml}<br><a href="#" onclick="navigateTo('ask-ai');closeFurnico();return false;" style="color:var(--accent);font-size:11px;display:inline-block;margin-top:6px;">Open in Ask AI tab →</a>`);
+      return;
+    } catch (e) {
+      console.warn('FAB Gemini error:', e);
+    }
+  }
+
   setTimeout(()=>{
     document.getElementById('fcp-typing')?.remove();
     const resp=buildStructuredResponse(text);
-    // Strip HTML structure for FAB — just show Evidence line + link
     const evidenceMatch=resp.content.match(/📊 Evidence<\/div><div class="block-text">(.*?)<\/div>/s);
     const evidenceText=evidenceMatch?evidenceMatch[1]:'See Ask AI tab for full answer.';
     addFCPMsg('ai',`${evidenceText}<br><br><a href="#" onclick="navigateTo('ask-ai');closeFurnico();askSuggestion({textContent:'${text.replace(/'/g,'')}'});return false;" style="color:var(--accent);font-size:11px">→ Full answer in Ask AI tab</a>`);
-  },700);
+  },600);
 }
 
 window.sendFurnicoSuggestion=function(el){

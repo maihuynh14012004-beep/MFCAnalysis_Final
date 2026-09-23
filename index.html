@@ -101,7 +101,7 @@
     <div class="nav-item" data-page="correlation" id="nav-correlation"><span class="nav-icon">🔗</span><span class="nav-label">Correlation Drivers</span></div>
 
     <div class="sidebar-section-label"><span class="sec-emoji">🤖</span><span class="sec-text">Intelligence</span></div>
-    <div class="nav-item" data-page="ask-ai" id="nav-ask-ai"><span class="nav-icon">💬</span><span class="nav-label">Ask AI — Furnico</span><span class="nav-badge">AI</span></div>
+    <div class="nav-item" data-page="ask-ai" id="nav-ask-ai"><span class="nav-icon">💬</span><span class="nav-label">Ask AI — FurBuddy</span><span class="nav-badge">AI</span></div>
     <div class="nav-item" data-page="data-profile" id="nav-data-profile"><span class="nav-icon">🔬</span><span class="nav-label">Data Profile</span></div>
   </nav>
 
@@ -365,7 +365,17 @@
 
     <!-- ═══ INTELLIGENCE: ASK AI ═══ -->
     <div class="page" id="page-ask-ai">
-      <div class="page-header"><h1>Ask AI — Furnico</h1><p>Your MFC data intelligence assistant. Ask anything about orders, finance, production, HR, or inventory.</p></div>
+      <div class="page-header" style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:12px;">
+        <div>
+          <h1>Ask AI — FurBuddy</h1>
+          <p>Your MFC Generative AI intelligence agent. Powered by Google Gemini 1.5 Flash &amp; operational simulator data.</p>
+        </div>
+        <div class="ai-config-badge" id="ai-config-badge" style="display:flex; align-items:center; gap:8px; background:rgba(30,41,59,0.8); border:1px solid rgba(59,130,246,0.35); padding:6px 14px; border-radius:20px; font-size:12px; cursor:pointer; transition:all 0.2s;" onclick="openGeminiKeyModal()" title="Click to configure Gemini API Key">
+          <span id="gemini-status-dot" style="display:inline-block; width:8px; height:8px; border-radius:50%; background:#10b981;"></span>
+          <span id="gemini-status-text" style="color:var(--text-primary); font-weight:600;">Gemini 1.5 Active</span>
+          <span style="opacity:0.7;">⚙️</span>
+        </div>
+      </div>
       <div class="ai-page-layout">
 
         <!-- Left: Chat -->
@@ -385,7 +395,7 @@
             </div>
           </div>
           <div class="ai-input-row">
-            <textarea class="ai-input" id="ai-page-input" rows="1" placeholder="Ask Furnico about MFC's performance…"></textarea>
+            <textarea class="ai-input" id="ai-page-input" rows="1" placeholder="Ask FurBuddy about MFC's performance…"></textarea>
             <button class="ai-send-btn" id="ai-page-send">➤</button>
           </div>
         </div>
@@ -445,20 +455,20 @@
   </div>
 </div>
 
-<!-- ══ FURNICO FAB (shortcut on non-AI pages) ══ -->
+<!-- ══ FURBUDDY FAB (shortcut on non-AI pages) ══ -->
 <div class="furnico-fab" id="furnico-fab" style="display:none">
-  <div class="furnico-fab-inner" id="furnico-fab-btn" title="Quick chat with Furnico">
+  <div class="furnico-fab-inner" id="furnico-fab-btn" title="Quick chat with FurBuddy">
     <span class="furnico-fab-icon">🤖</span>
     <div class="furnico-fab-ring"></div>
   </div>
-  <div class="furnico-label">Furnico</div>
+  <div class="furnico-label">FurBuddy</div>
 </div>
 
-<!-- ══ FURNICO MINI PANEL (FAB shortcut chat) ══ -->
+<!-- ══ FURBUDDY MINI PANEL (FAB shortcut chat) ══ -->
 <div class="furnico-chat-panel" id="furnico-chat-panel">
   <div class="fcp-header">
     <div class="furnico-avatar-sm">🤖</div>
-    <div><div class="fcp-title">Furnico AI</div><div class="fcp-sub">Quick answers · Full chat in Ask AI tab</div></div>
+    <div><div class="fcp-title">FurBuddy AI</div><div class="fcp-sub">Powered by Gemini 1.5 · Full chat in Ask AI tab</div></div>
     <div class="online-badge" style="margin-left:auto"><div class="status-dot"></div>Online</div>
     <button class="fcp-close" id="furnico-close">✕</button>
   </div>
@@ -470,8 +480,36 @@
     <div class="suggestion-chip" onclick="sendFurnicoSuggestion(this)">Bottleneck?</div>
   </div>
   <div class="fcp-input-row">
-    <textarea class="fcp-input" id="fcp-input" rows="1" placeholder="Ask Furnico…"></textarea>
+    <textarea class="fcp-input" id="fcp-input" rows="1" placeholder="Ask FurBuddy…"></textarea>
     <button class="fcp-send" id="fcp-send">➤</button>
+  </div>
+</div>
+
+<!-- ══ GEMINI API KEY MODAL ══ -->
+<div class="modal-overlay" id="gemini-modal" style="display:none" onclick="closeGeminiModal(event)">
+  <div class="modal-card" style="max-width:500px;" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <div class="modal-title">🔑 Google Gemini API Settings</div>
+      <button class="modal-close" onclick="closeGeminiModal()">✕</button>
+    </div>
+    <div class="modal-body" style="padding:20px;">
+      <p style="font-size:13px; color:var(--text-secondary); margin-bottom:14px; line-height:1.6;">
+        <strong>FurBuddy</strong> connects directly to <strong>Google Gemini 1.5 Flash</strong> to provide dynamic Generative AI analysis over Modern Furniture Co.'s operational data.
+      </p>
+      <div style="background:rgba(59,130,246,0.08); border:1px solid rgba(59,130,246,0.25); border-radius:8px; padding:10px 14px; margin-bottom:16px; font-size:12px; color:var(--text-secondary);">
+        <strong style="color:var(--accent);">Active Mode:</strong> <span id="modal-current-mode">Gemini 1.5 Flash Connected</span>
+      </div>
+      <label style="display:block; font-size:12px; font-weight:700; margin-bottom:6px; color:var(--text-primary); text-transform:uppercase; letter-spacing:0.05em;">Enter Gemini API Key</label>
+      <input type="password" id="gemini-api-key-input" placeholder="Paste your Gemini API key here (AIzaSy...)" style="width:100%; padding:10px 12px; border-radius:8px; border:1px solid rgba(255,255,255,0.15); background:rgba(15,23,42,0.8); color:#fff; font-size:13px; margin-bottom:10px; font-family:monospace;" />
+      <div style="display:flex; justify-content:space-between; align-items:center; font-size:11px; color:var(--text-muted); margin-bottom:18px;">
+        <span>Key is saved in browser localStorage</span>
+        <a href="https://aistudio.google.com/app/apikey" target="_blank" style="color:var(--accent); text-decoration:none; font-weight:600;">Get a free API key at Google AI Studio ↗</a>
+      </div>
+      <div style="display:flex; justify-content:flex-end; gap:10px;">
+        <button class="welcome-btn demo-btn" style="width:auto; padding:8px 16px; font-size:12px;" onclick="clearGeminiKey()">Reset to Offline Fallback</button>
+        <button class="welcome-btn historic-btn" style="width:auto; padding:8px 20px; font-size:13px;" onclick="saveGeminiKey()">Save &amp; Activate Gemini</button>
+      </div>
+    </div>
   </div>
 </div>
 
