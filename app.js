@@ -1120,19 +1120,27 @@ function formatMarkdownText(md){
   return html;
 }
 
+if (localStorage.getItem('mfc_gemini_working_model') === 'gemini-2.5-pro') {
+  localStorage.removeItem('mfc_gemini_working_model');
+}
+
 async function getAvailableGeminiModel(){
-  if (workingGeminiModel) return workingGeminiModel;
+  if (workingGeminiModel && workingGeminiModel !== 'gemini-2.5-pro') return workingGeminiModel;
   try {
     const listRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${GEMINI_API_KEY}`);
     if (listRes.ok) {
       const data = await listRes.json();
       const models = (data.models || [])
         .filter(m => m.supportedGenerationMethods && m.supportedGenerationMethods.includes('generateContent'))
-        .map(m => m.name.replace(/^models\//, ''));
+        .map(m => m.name.replace(/^models\//, ''))
+        .filter(m => !m.includes('2.5-pro') && !m.includes('1.5-flash') && !m.includes('2.0-flash'));
       
-      const best = models.find(m => m.includes('flash') && !m.includes('lite') && !m.includes('thinking'))
+      const best = models.find(m => m.includes('3.1-pro-preview'))
+                || models.find(m => m.includes('3.5-flash'))
+                || models.find(m => m.includes('3.8-flash'))
+                || models.find(m => m.includes('2.5-flash'))
+                || models.find(m => m.includes('3.1'))
                 || models.find(m => m.includes('flash'))
-                || models.find(m => m.includes('gemini'))
                 || models[0];
       if (best) {
         workingGeminiModel = best;
@@ -1144,7 +1152,7 @@ async function getAvailableGeminiModel(){
   } catch (e) {
     console.warn('Dynamic model query failed, falling back to candidate list:', e);
   }
-  return 'gemini-2.5-flash';
+  return 'gemini-3.1-pro-preview';
 }
 
 async function callGeminiAPI(query){
@@ -1176,12 +1184,12 @@ Privacy Guardrail: Protect individual customer identities and personal salary in
   const initialModel = await getAvailableGeminiModel();
   const candidates = [
     initialModel,
+    'gemini-3.1-pro-preview',
     'gemini-2.5-flash',
-    'gemini-2.0-flash',
-    'gemini-1.5-flash-latest',
-    'gemini-1.5-flash-002',
-    'gemini-1.5-pro',
-    'gemini-2.5-pro'
+    'gemini-3.5-flash',
+    'gemini-3.8-flash',
+    'gemini-3.1-pro',
+    'gemini-2.5-flash-latest'
   ].filter((v, i, a) => v && a.indexOf(v) === i);
 
   let lastError = null;
@@ -1219,16 +1227,19 @@ Privacy Guardrail: Protect individual customer identities and personal salary in
       } else {
         const err = await resp.json().catch(() => ({}));
         lastError = new Error(err.error?.message || `HTTP ${resp.status}`);
-        // If not a model-not-found error, don't try other models (e.g. invalid key or billing issue)
-        if (resp.status !== 404 && !lastError.message?.toLowerCase().includes('not found')) {
+        const errMsg = (lastError.message || '').toLowerCase();
+        // If API key itself is invalid, throw immediately
+        if (errMsg.includes('api_key_invalid') || errMsg.includes('api key not valid')) {
           throw lastError;
         }
+        console.warn(`Model ${model} not available (${lastError.message}), trying next candidate...`);
       }
     } catch (e) {
       lastError = e;
-      if (!e.message?.toLowerCase().includes('not found') && !e.message?.includes('404')) {
+      if (e.message?.toLowerCase().includes('api_key_invalid')) {
         throw e;
       }
+      console.warn(`Error connecting to ${model}, trying next:`, e);
     }
   }
 
