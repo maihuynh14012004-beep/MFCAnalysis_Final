@@ -1120,39 +1120,39 @@ function formatMarkdownText(md){
   return html;
 }
 
-if (localStorage.getItem('mfc_gemini_working_model') === 'gemini-2.5-pro') {
-  localStorage.removeItem('mfc_gemini_working_model');
-}
-
-async function getAvailableGeminiModel(){
-  if (workingGeminiModel && workingGeminiModel !== 'gemini-2.5-pro') return workingGeminiModel;
+async function fetchLiveGeminiModels(){
   try {
-    const listRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${GEMINI_API_KEY}`);
-    if (listRes.ok) {
-      const data = await listRes.json();
-      const models = (data.models || [])
-        .filter(m => m.supportedGenerationMethods && m.supportedGenerationMethods.includes('generateContent'))
-        .map(m => m.name.replace(/^models\//, ''))
-        .filter(m => !m.includes('2.5-pro') && !m.includes('1.5-flash') && !m.includes('2.0-flash'));
-      
-      const best = models.find(m => m.includes('3.1-pro-preview'))
-                || models.find(m => m.includes('3.5-flash'))
-                || models.find(m => m.includes('3.8-flash'))
-                || models.find(m => m.includes('2.5-flash'))
-                || models.find(m => m.includes('3.1'))
-                || models.find(m => m.includes('flash'))
-                || models[0];
-      if (best) {
-        workingGeminiModel = best;
-        localStorage.setItem('mfc_gemini_working_model', best);
-        updateGeminiStatusUI();
-        return best;
-      }
+    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${GEMINI_API_KEY}`);
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error?.message || `HTTP ${res.status}`);
     }
+    const data = await res.json();
+    const models = (data.models || [])
+      .filter(m => Array.isArray(m.supportedGenerationMethods) && m.supportedGenerationMethods.includes('generateContent'))
+      .map(m => m.name.replace(/^models\//, ''))
+      .filter(m => !m.includes('2.5-pro') && !m.includes('1.5-flash'));
+    
+    // Sort models intelligently:
+    // 1. Modern Flash / Pro models
+    models.sort((a, b) => {
+      const score = name => {
+        let s = 0;
+        if (name.includes('flash')) s += 15;
+        if (name.includes('pro')) s += 8;
+        if (name.includes('3.')) s += 25;
+        if (name.includes('2.')) s += 15;
+        if (name.includes('preview')) s += 5;
+        return s;
+      };
+      return score(b) - score(a);
+    });
+
+    return models;
   } catch (e) {
-    console.warn('Dynamic model query failed, falling back to candidate list:', e);
+    console.warn('Could not list models from Google:', e);
+    throw e;
   }
-  return 'gemini-3.1-pro-preview';
 }
 
 async function callGeminiAPI(query){
@@ -1181,19 +1181,20 @@ Answer the manager's inquiry using these 4 structured sections formatted in HTML
 
 Privacy Guardrail: Protect individual customer identities and personal salary info. Aggregate metrics only.`;
 
-  const initialModel = await getAvailableGeminiModel();
-  const candidates = [
-    initialModel,
-    'gemini-3.1-pro-preview',
-    'gemini-2.5-flash',
-    'gemini-3.5-flash',
-    'gemini-3.8-flash',
-    'gemini-3.1-pro',
-    'gemini-2.5-flash-latest'
-  ].filter((v, i, a) => v && a.indexOf(v) === i);
+  // Fetch actual live supported models directly from Google ModelService
+  const liveModels = await fetchLiveGeminiModels();
+  if (!liveModels || liveModels.length === 0) {
+    throw new Error('Google AI Studio returned no active models supporting generateContent for this API key.');
+  }
+
+  // If a known working model exists in liveModels, try it first
+  if (workingGeminiModel && liveModels.includes(workingGeminiModel)) {
+    liveModels.splice(liveModels.indexOf(workingGeminiModel), 1);
+    liveModels.unshift(workingGeminiModel);
+  }
 
   let lastError = null;
-  for (const model of candidates) {
+  for (const model of liveModels) {
     try {
       const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`;
       const payload = {
@@ -1228,22 +1229,21 @@ Privacy Guardrail: Protect individual customer identities and personal salary in
         const err = await resp.json().catch(() => ({}));
         lastError = new Error(err.error?.message || `HTTP ${resp.status}`);
         const errMsg = (lastError.message || '').toLowerCase();
-        // If API key itself is invalid, throw immediately
         if (errMsg.includes('api_key_invalid') || errMsg.includes('api key not valid')) {
           throw lastError;
         }
-        console.warn(`Model ${model} not available (${lastError.message}), trying next candidate...`);
+        console.warn(`Model ${model} returned error (${lastError.message}), trying next available model...`);
       }
     } catch (e) {
       lastError = e;
       if (e.message?.toLowerCase().includes('api_key_invalid')) {
         throw e;
       }
-      console.warn(`Error connecting to ${model}, trying next:`, e);
+      console.warn(`Fetch error for ${model}, trying next available model:`, e);
     }
   }
 
-  throw lastError || new Error('No available Gemini model supported for this key');
+  throw lastError || new Error('No available Gemini model responded successfully');
 }
 
 function initAIPage(){
