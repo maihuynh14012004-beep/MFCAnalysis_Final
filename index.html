@@ -95,6 +95,7 @@
 
     <div class="sidebar-section-label"><span class="sec-emoji">⚡</span><span class="sec-text">Present</span></div>
     <div class="nav-item" data-page="operations" id="nav-operations"><span class="nav-icon">🏭</span><span class="nav-label">Operations Board</span></div>
+    <div class="nav-item" data-page="commitment-risk" id="nav-commitment-risk"><span class="nav-icon">⚠️</span><span class="nav-label">Commitment Risk</span></div>
 
     <div class="sidebar-section-label"><span class="sec-emoji">🔮</span><span class="sec-text">Future</span></div>
     <div class="nav-item" data-page="forecasts" id="nav-forecasts"><span class="nav-icon">📈</span><span class="nav-label">Forecasts &amp; Risk</span></div>
@@ -141,7 +142,7 @@
         <h2>📈 FY 2025 Business Snapshot</h2>
         <p>Real-time analytics powered by operational data across orders, finance, production, HR, and inventory.</p>
         <div class="hero-meta">
-          <div class="hero-meta-item">📅 Period: <span>Jan – Sep 2025</span></div>
+          <div class="hero-meta-item">📅 Period: <span>2025-01-02 to 2027-01-01 (24 months)</span></div>
           <div class="hero-meta-item">🏙️ Location: <span>Melbourne, VIC</span></div>
           <div class="hero-meta-item">🪵 Materials: <span>3 Types</span></div>
         </div>
@@ -149,7 +150,7 @@
       <div class="kpi-grid">
         <div class="kpi-card blue"><span class="kpi-icon">💰</span><div class="kpi-label">Total Revenue</div><div class="kpi-value" id="kpi-revenue">—</div><div class="kpi-change up">↑ FY2025</div></div>
         <div class="kpi-card green"><span class="kpi-icon">📦</span><div class="kpi-label">Total Orders</div><div class="kpi-value" id="kpi-orders">—</div><div class="kpi-change up">All inquiries</div></div>
-        <div class="kpi-card amber"><span class="kpi-icon">✅</span><div class="kpi-label">Win Rate</div><div class="kpi-value" id="kpi-winrate">—</div><div class="kpi-change">Delivered orders</div></div>
+        <div class="kpi-card amber"><span class="kpi-icon">✅</span><div class="kpi-label">Acceptance Rate</div><div class="kpi-value" id="kpi-winrate">—</div><div class="kpi-change">Accepted orders</div></div>
         <div class="kpi-card purple"><span class="kpi-icon">⏱️</span><div class="kpi-label">On-Time Delivery</div><div class="kpi-value" id="kpi-ontime">—</div><div class="kpi-change up">Of delivered</div></div>
         <div class="kpi-card blue"><span class="kpi-icon">💵</span><div class="kpi-label">Net Profit</div><div class="kpi-value" id="kpi-profit">—</div><div class="kpi-change" id="kpi-profit-ch">Revenue – Costs</div></div>
         <div class="kpi-card red"><span class="kpi-icon">👤</span><div class="kpi-label">Active Staff</div><div class="kpi-value" id="kpi-staff">—</div><div class="kpi-change down">Of original team</div></div>
@@ -192,14 +193,14 @@
         <div class="kpi-card green"><span class="kpi-icon">🚚</span><div class="kpi-label">Delivered</div><div class="kpi-value" id="ord-delivered">—</div></div>
         <div class="kpi-card red"><span class="kpi-icon">❌</span><div class="kpi-label">Lost</div><div class="kpi-value" id="ord-lost">—</div></div>
         <div class="kpi-card amber"><span class="kpi-icon">💵</span><div class="kpi-label">Avg Quote Price</div><div class="kpi-value" id="ord-avg-price">—</div></div>
-        <div class="kpi-card purple"><span class="kpi-icon">📈</span><div class="kpi-label">Win Rate</div><div class="kpi-value" id="ord-winrate">—</div></div>
+        <div class="kpi-card purple"><span class="kpi-icon">📈</span><div class="kpi-label">Acceptance Rate</div><div class="kpi-value" id="ord-winrate">—</div></div>
       </div>
       <div class="charts-grid cols-2" style="margin-bottom:16px">
         <div class="chart-card drill-clickable"><div class="chart-card-header"><div><div class="chart-card-title">Monthly Order Volume</div><div class="chart-card-sub">Click a bar to see that month's order breakdown</div></div><span class="chart-badge blue">Bar · Clickable</span></div><div class="chart-container h-260"><canvas id="chart-monthly-orders"></canvas></div></div>
         <div class="chart-card drill-clickable"><div class="chart-card-header"><div><div class="chart-card-title">Avg Quote by Product</div><div class="chart-card-sub">Click a bar to see orders for that product</div></div><span class="chart-badge amber">Bar · Clickable</span></div><div class="chart-container h-260"><canvas id="chart-quote-product"></canvas></div></div>
       </div>
       <div class="charts-grid cols-2" style="margin-bottom:16px">
-        <div class="chart-card"><div class="chart-card-header"><div><div class="chart-card-title">Win Rate by Product</div><div class="chart-card-sub">Delivered ÷ Total inquiries</div></div><span class="chart-badge green">Bar</span></div><div class="chart-container h-260"><canvas id="chart-winrate-product"></canvas></div></div>
+        <div class="chart-card"><div class="chart-card-header"><div><div class="chart-card-title">Acceptance Rate by Product</div><div class="chart-card-sub">Accepted ÷ Total inquiries</div></div><span class="chart-badge green">Bar</span></div><div class="chart-container h-260"><canvas id="chart-winrate-product"></canvas></div></div>
         <div class="chart-card"><div class="chart-card-header"><div><div class="chart-card-title">Material Usage by Orders</div><div class="chart-card-sub">Most common material type</div></div><span class="chart-badge purple">Doughnut</span></div><div class="chart-container h-260"><canvas id="chart-material-orders"></canvas></div></div>
       </div>
       <!-- Orders drill-down panel -->
@@ -322,14 +323,38 @@
       </div>
     </div>
 
+    <!-- ═══ PRESENT: COMMITMENT RISK ═══ -->
+    <div class="page" id="page-commitment-risk">
+      <div class="page-header">
+        <h1>Commitment Risk</h1>
+        <p>Due date reliability and delivery risk by active concurrent order workload (Pre-WIP bands).</p>
+      </div>
+      <div class="kpi-grid" id="cr-kpi-row" style="margin-bottom:16px"></div>
+      <div class="chart-card" style="margin-bottom:16px">
+        <div class="chart-card-header">
+          <div>
+            <div class="chart-card-title">Delivery Late Rate by Concurrent Order Band (Pre-WIP)</div>
+            <div class="chart-card-sub">Historical late delivery percentage across pre-WIP bands with sample sizes (n)</div>
+          </div>
+          <span class="chart-badge amber">Reference Class</span>
+        </div>
+        <div class="chart-container h-320">
+          <canvas id="chart-commitment-risk"></canvas>
+        </div>
+        <div class="chart-caption" style="margin-top:12px;padding:12px 14px;background:rgba(255,255,255,0.03);border-left:3px solid var(--accent);border-radius:4px;font-size:12.5px;line-height:1.5;color:var(--text-secondary)">
+          <strong>Empirical Insight:</strong> Workload drives delivery delays: orders accepted when the shop floor has fewer than 12 active orders achieve near-perfect on-time delivery (0–4.5% late rate), whereas late deliveries escalate sharply to 44.8% at 14–15 orders and 82.7% once active workload reaches 16+ orders.
+        </div>
+      </div>
+    </div>
+
     <!-- ═══ FUTURE: FORECASTS & RISK ═══ -->
     <div class="page" id="page-forecasts">
       <div class="page-header"><h1>Forecasts &amp; Risk Indicators</h1><p>Forward-looking projections and operational risk signals based on historical trends.</p></div>
-      <div class="forecast-disclaimer">⚠️ <strong>Data Coverage Notice:</strong> This dataset spans ~9 months (Jan–Sep 2025). Forecasts are directional estimates only — reliable projections require 18–24 months minimum. Treat with caution.</div>
+      <div class="forecast-disclaimer">ℹ️ <strong>Data Coverage Notice:</strong> 2025-01-02 to 2027-01-01 (24 months). Forecasts and projections are based on two full years of operational history.</div>
       <div class="kpi-grid" id="forecast-kpi-row" style="margin-bottom:16px"></div>
       <div class="charts-grid cols-2" style="margin-bottom:16px">
         <div class="chart-card"><div class="chart-card-header"><div><div class="chart-card-title">Revenue Trend &amp; Projection</div><div class="chart-card-sub">Historical + 3-month linear extrapolation</div></div><span class="chart-badge blue">Line + Forecast</span></div><div class="chart-container h-300"><canvas id="chart-revenue-forecast"></canvas></div></div>
-        <div class="chart-card"><div class="chart-card-header"><div><div class="chart-card-title">Win Rate Trend</div><div class="chart-card-sub">Monthly win rate moving average</div></div><span class="chart-badge green">Line</span></div><div class="chart-container h-300"><canvas id="chart-winrate-trend"></canvas></div></div>
+        <div class="chart-card"><div class="chart-card-header"><div><div class="chart-card-title">Acceptance Rate Trend</div><div class="chart-card-sub">Monthly acceptance rate moving average</div></div><span class="chart-badge green">Line</span></div><div class="chart-container h-300"><canvas id="chart-winrate-trend"></canvas></div></div>
       </div>
       <div class="chart-card">
         <div class="chart-card-header"><div class="chart-card-title">🚨 Risk Indicators</div><span class="chart-badge red">Live</span></div>
@@ -341,12 +366,12 @@
     <div class="page" id="page-correlation">
       <div class="page-header">
         <h1>Correlation Drivers</h1>
-        <p>Ranked analysis of what actually drives your win rate and profitability. <strong>Click any driver row to see its scatter plot.</strong></p>
+        <p>Ranked analysis of what actually drives your acceptance rate and profitability. <strong>Click any driver row to see its scatter plot.</strong></p>
       </div>
       <div class="correlation-disclaimer">ℹ️ Correlation ≠ causation. Coefficients below show statistical association only. Treat as hypothesis generators, not proof.</div>
       <div class="charts-grid cols-2">
         <div class="chart-card">
-          <div class="chart-card-header"><div class="chart-card-title">📊 Driver Rankings — Win Rate</div><span class="chart-badge amber">Ranked</span></div>
+          <div class="chart-card-header"><div class="chart-card-title">📊 Driver Rankings — Acceptance Rate</div><span class="chart-badge amber">Ranked</span></div>
           <div id="correlation-table-winrate"></div>
         </div>
         <div class="chart-card">
@@ -391,7 +416,7 @@
               <span class="tip-chip">📦 Product type</span>
               <span class="tip-chip">📊 The metric you care about</span>
               <span class="tip-chip">🔄 What you want to compare</span>
-              <div class="tips-example">Example: <em>"What was our win rate for Media Console in Q1 compared to Q2?"</em></div>
+              <div class="tips-example">Example: <em>"What was our acceptance rate for Media Console in Q1 compared to Q2?"</em></div>
             </div>
           </div>
           <div class="ai-input-row">
@@ -406,7 +431,7 @@
             <div class="ai-panel-title">💬 Suggested Questions</div>
             <div class="ai-q-category">📜 Past Performance</div>
             <div class="ai-q-chips">
-              <div class="ai-q-chip" onclick="askSuggestion(this)">What's our overall win rate?</div>
+              <div class="ai-q-chip" onclick="askSuggestion(this)">What's our overall acceptance rate?</div>
               <div class="ai-q-chip" onclick="askSuggestion(this)">Which product has the best margin?</div>
               <div class="ai-q-chip" onclick="askSuggestion(this)">Where are we losing orders?</div>
               <div class="ai-q-chip" onclick="askSuggestion(this)">Show me the financial summary</div>
@@ -421,7 +446,7 @@
             <div class="ai-q-category">🔮 Future &amp; Risk</div>
             <div class="ai-q-chips">
               <div class="ai-q-chip" onclick="askSuggestion(this)">What's our revenue trend?</div>
-              <div class="ai-q-chip" onclick="askSuggestion(this)">What drives our win rate?</div>
+              <div class="ai-q-chip" onclick="askSuggestion(this)">What drives our acceptance rate?</div>
               <div class="ai-q-chip" onclick="askSuggestion(this)">What's our biggest delivery risk?</div>
             </div>
           </div>
@@ -437,6 +462,7 @@
     <!-- ═══ INTELLIGENCE: DATA PROFILE ═══ -->
     <div class="page" id="page-data-profile">
       <div class="page-header"><h1>Data Profile &amp; Quality</h1><p>Automatically generated schema inspection and data quality report.</p></div>
+      <div id="dp-self-check" style="margin-bottom:16px"></div>
       <div class="kpi-grid" id="dp-kpi-row" style="margin-bottom:16px"></div>
       <div id="dp-tables-wrap"></div>
     </div>
@@ -474,7 +500,7 @@
   </div>
   <div class="fcp-messages" id="fcp-messages"></div>
   <div class="fcp-suggestions" id="fcp-suggestions">
-    <div class="suggestion-chip" onclick="sendFurnicoSuggestion(this)">Win rate?</div>
+    <div class="suggestion-chip" onclick="sendFurnicoSuggestion(this)">Acceptance rate?</div>
     <div class="suggestion-chip" onclick="sendFurnicoSuggestion(this)">Best product?</div>
     <div class="suggestion-chip" onclick="sendFurnicoSuggestion(this)">Finance summary</div>
     <div class="suggestion-chip" onclick="sendFurnicoSuggestion(this)">Bottleneck?</div>
