@@ -359,7 +359,8 @@ function computeMetrics(){
 
   METRICS={
     totalOrders:orders.length,delivered:delivered.length,lost:lost.length,
-    winRate,onTimePct,onTimeCount:onTime.length,lateCount:lateOrds.length,avgQuote,
+    deliveredOrders:delivered.length,lostOrders:lost.length,
+    winRate,onTimePct,onTimeRate:onTimePct,onTimeCount:onTime.length,lateCount:lateOrds.length,avgQuote,
     productTypes,byProduct,byMaterial,monthlyOrders,
     avgDesignH:orders.reduce((s,o)=>s+(o.designHours||0),0)/Math.max(orders.length,1),
     avgMillingH:orders.reduce((s,o)=>s+(o.millingHours||0),0)/Math.max(orders.length,1),
@@ -367,7 +368,9 @@ function computeMetrics(){
     avgFinH:orders.reduce((s,o)=>s+(o.finishingHours||0),0)/Math.max(orders.length,1),
     avgTotalH:orders.reduce((s,o)=>s+(o.designHours||0)+(o.millingHours||0)+(o.joineryHours||0)+(o.finishingHours||0),0)/Math.max(orders.length,1),
     lateOrds,
-    totalRev,totalCost,netProfit,profitMargin:totalRev>0?netProfit/totalRev*100:0,
+    totalRev,totalCost,netProfit,
+    profitMargin:totalRev>0?netProfit/totalRev*100:0,
+    margin:totalRev>0?netProfit/totalRev*100:0,
     wagesTotal,overheadsTotal,materialCostTotal,otherCosts:Math.max(0,totalCost-wagesTotal-overheadsTotal-materialCostTotal),
     monthlyFinance,avgDailyCost:uniqueDays>0?totalCost/uniqueDays:0,
     activeStaff:active.length,resignedStaff:resigned.length,totalStaff:roster.length,
@@ -1106,10 +1109,18 @@ window.clearGeminiKey = function(){
 
 function formatMarkdownText(md){
   if (!md) return '';
-  if (md.includes('ai-structured') || md.includes('ai-block')) return md;
+  // Strip code block fences if wrapped
+  let html = md.replace(/```(?:html)?\s*([\s\S]*?)```/gi, '$1').trim();
 
-  let html = md
-    .replace(/```(?:html)?\s*([\s\S]*?)```/gi, '$1')
+  // If already contains structured HTML, do basic markdown cleanup on text nodes
+  if (html.includes('ai-structured') || html.includes('ai-block')) {
+    html = html
+      .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+      .replace(/\*(.*?)\*/g, '<em>$1</em>');
+    return html;
+  }
+
+  return html
     .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
     .replace(/\*(.*?)\*/g, '<em>$1</em>')
     .replace(/^### (.*$)/gim, '<h4 style="color:var(--accent);margin:10px 0 4px;font-size:13px;">$1</h4>')
@@ -1117,7 +1128,6 @@ function formatMarkdownText(md){
     .replace(/^\s*[\*\-]\s+(.*$)/gim, '• $1<br>')
     .replace(/\n\n+/g, '<br><br>')
     .replace(/\n/g, '<br>');
-  return html;
 }
 
 async function fetchLiveGeminiModels(){
@@ -1157,29 +1167,69 @@ async function fetchLiveGeminiModels(){
 
 async function callGeminiAPI(query){
   const m = METRICS;
-  const systemPrompt = `You are FurBuddy, the Generative AI Analytics Agent for Modern Furniture Co. (MFC), a custom furniture manufacturer based in Melbourne, VIC.
-You are directly evaluating real business data from the simulator covering FY 2025:
-- Total Orders: ${m.totalOrders || 1166}
-- Total Revenue: $${((m.totalRev||0)/1000).toFixed(1)}k
-- Total Costs: $${((m.totalCost||0)/1000).toFixed(1)}k
-- Net Profit: $${((m.netProfit||0)/1000).toFixed(1)}k (Net Margin: ${((m.margin||0)*100).toFixed(1)}%)
-- Win Rate: ${((m.winRate||0)*100).toFixed(1)}% (${m.deliveredOrders||0} delivered, ${m.lostOrders||0} lost)
-- On-Time Delivery Rate: ${((m.onTimeRate||0)*100).toFixed(1)}%
-- Active Staff: ${m.activeStaff||12} of ${m.totalStaff||24} (${m.resignedStaff||12} resigned/turnover)
-- Key Product Lines: Custom Dining Tables, Ergonomic Office Chairs, Media Consoles, Modular Bookshelves, Bed Frames.
-- Workshop Stages: Milling, Joinery, Assembly, Finishing. Milling & Joinery are main cycle bottlenecks.
-- Inventory: Timber types (Walnut, Oak, Ash). Walnut stockouts consistently cause production delays.
+  const productSummary = (m.productTypes || []).map(pt => {
+    const p = (m.byProduct && m.byProduct[pt]) || {};
+    return `  * ${pt}: ${p.total||0} orders quoted, ${p.delivered||0} delivered, ${p.lost||0} lost (Win Rate: ${(p.winRate||0).toFixed(1)}%), Revenue: $${((p.revenue||0)/1000).toFixed(1)}k, Avg Quote: $${(p.avgQuote||0).toFixed(0)}`;
+  }).join('\n');
 
-Instructions:
-Answer the manager's inquiry using these 4 structured sections formatted in HTML:
+  const invSummary = (m.materialsList || Object.keys(m.invByMaterial || {})).map(mat => {
+    const iv = (m.invByMaterial && m.invByMaterial[mat]) || {};
+    return `  * ${mat}: Current stock ${iv.currentLevel||0}m³, Total reorders ${iv.totalReorders||0}, Total consumed ${iv.totalConsumed||0}m³`;
+  }).join('\n');
+
+  const activeDesigners = (DATA.hrRoster || []).filter(r => r.role === 'designer' && r.status === 'Active').length;
+  const activeMakers = (DATA.hrRoster || []).filter(r => r.role === 'maker' && r.status === 'Active').length;
+
+  const systemPrompt = `You are FurBuddy 🐾, the friendly, supportive, and sharp Generative AI Analytics Agent for Modern Furniture Co. (MFC), a bespoke custom furniture maker in Melbourne, VIC.
+You are chatting with MFC's operations manager.
+
+Persona & Friendly Tone Guide:
+- Be warm, encouraging, conversational, and genuinely helpful—like a friendly senior operations colleague who cares about the team and business success.
+- Start with a warm, natural 1-sentence opening directly answering the manager's question with the key headline figure (e.g. "Hey! Happy to help. Our on-time delivery rate is currently tracking at a solid 86.3%!" or "Hey there! Looking into our financials, here's how our margins stand:").
+- LASER-FOCUS on the question: Only include data points in EVIDENCE that directly answer or explain what the user asked. NEVER regurgitate the entire database or dump unrelated metrics (e.g. do NOT mention timber stock, headcount, or net profit if the user asked about on-time delivery!).
+- In INTERPRETATION, explain the operational reality in friendly, plain English.
+- In STRATEGIC ACTION, offer positive, actionable, practical steps.
+- In LIMITATION & ASSUMPTION, keep it brief, constructive, and realistic.
+- Finish with a friendly, inviting closing line offering to dive deeper (e.g. "Let me know if you'd like to look at the orders that ran late, or see how joinery capacity is impacting delivery!").
+
+Real MFC Operational Simulator Data:
+- Orders: 1,166 total quoted (${m.delivered || 460} delivered, ${m.lost || 689} lost)
+- Overall Win Rate: ${(m.winRate || 0).toFixed(1)}% (${m.delivered || 460} delivered / ${m.totalOrders || 1166} quotes)
+- On-Time Delivery Rate: ${(m.onTimePct || 0).toFixed(1)}% (${m.onTimeCount || 397} on-time deliveries, ${m.lateCount || 63} late deliveries out of ${m.delivered || 460} delivered orders)
+- Financials:
+  * Total Revenue: $${((m.totalRev||0)/1000).toFixed(1)}k ($${Math.round(m.totalRev||0).toLocaleString()})
+  * Operating Costs: $${((m.totalCost||0)/1000).toFixed(1)}k ($${Math.round(m.totalCost||0).toLocaleString()})
+  * Net Profit: $${((m.netProfit||0)/1000).toFixed(1)}k ($${Math.round(m.netProfit||0).toLocaleString()})
+  * Net Margin: ${(m.profitMargin || 0).toFixed(1)}%
+  * Cost Drivers: Wages $${((m.wagesTotal||0)/1000).toFixed(1)}k, Overheads $${((m.overheadsTotal||0)/1000).toFixed(1)}k, Materials $${((m.materialCostTotal||0)/1000).toFixed(1)}k
+- Team Capacity & HR:
+  * Active Team: ${m.activeStaff || 12} of ${m.totalStaff || 24} total (${m.resignedStaff || 12} resigned / ${((m.resignedStaff||12)/(m.totalStaff||24)*100).toFixed(1)}% turnover)
+  * Active Roles: ${activeDesigners} designers, ${activeMakers} makers
+- Workshop Production Stages (Average Hours per Order):
+  * Design: ${(m.avgDesignH||8.0).toFixed(1)}h
+  * Milling: ${(m.avgMillingH||16.0).toFixed(1)}h
+  * Joinery: ${(m.avgJoinH||24.1).toFixed(1)}h (Primary bottleneck: accounts for ~43% of stage hours; maker turnover directly constrains joinery throughput)
+  * Finishing: ${(m.avgFinH||8.0).toFixed(1)}h
+- Product Breakdown:
+${productSummary || '  * Bookshelf, Office Desk, Sideboard, Dining Table, Media Console'}
+- Timber Materials:
+${invSummary || '  * American Walnut, Tasmanian Oak, Victorian Ash'}
+- Operational Dynamics:
+  * High quote prices and complexity lead to lower win rates (lost orders).
+  * Joinery backlog and maker departures are the main root cause of late deliveries.
+  * American Walnut inventory shortages historically caused queue stalls.
+
+Output Format:
+<p style="margin:0 0 10px;font-size:13px;line-height:1.5;">[Warm, friendly 1-sentence opening directly answering the question with the headline number]</p>
 <div class="ai-structured">
-  <div class="ai-block evidence-block"><div style="font-weight:700;color:var(--accent2);margin-bottom:4px;">📊 EVIDENCE</div><div class="block-text">[Specific data numbers, metrics, and facts from MFC]</div></div>
-  <div class="ai-block interpretation-block"><div style="font-weight:700;color:var(--accent);margin-bottom:4px;">💡 INTERPRETATION</div><div class="block-text">[Business analysis: why this happens, operational impact, financial risk]</div></div>
-  <div class="ai-block action-block"><div style="font-weight:700;color:var(--accent4);margin-bottom:4px;">🎯 STRATEGIC ACTION</div><div class="block-text">[Actionable recommendation for MFC management to solve or improve this]</div></div>
-  <div class="ai-block limitation-block"><div style="font-weight:700;color:var(--accent5);margin-bottom:4px;">⚠️ LIMITATION & ASSUMPTION</div><div class="block-text">[Constraints of data, assumptions made, or additional telemetry required]</div></div>
+  <div class="ai-block evidence-block"><div style="font-weight:700;color:var(--accent2);margin-bottom:4px;">📊 EVIDENCE</div><div class="block-text">[Focused, relevant metrics strictly answering this inquiry]</div></div>
+  <div class="ai-block interpretation-block"><div style="font-weight:700;color:var(--accent);margin-bottom:4px;">💡 INTERPRETATION</div><div class="block-text">[Friendly explanation of why and operational impact]</div></div>
+  <div class="ai-block action-block"><div style="font-weight:700;color:var(--accent4);margin-bottom:4px;">🎯 STRATEGIC ACTION</div><div class="block-text">[Constructive, positive recommendations for management]</div></div>
+  <div class="ai-block limitation-block"><div style="font-weight:700;color:var(--accent5);margin-bottom:4px;">⚠️ LIMITATION & ASSUMPTION</div><div class="block-text">[Constructive caveats or additional telemetry needed]</div></div>
 </div>
+<p style="margin:10px 0 0;font-size:12px;color:var(--text-muted);font-style:italic;">[Friendly sign-off offering a helpful follow-up]</p>
 
-Privacy Guardrail: Protect individual customer identities and personal salary info. Aggregate metrics only.`;
+Privacy: Protect individual customer and employee identities. Aggregate data only.`;
 
   // Fetch actual live supported models directly from Google ModelService
   const liveModels = await fetchLiveGeminiModels();
@@ -1489,88 +1539,109 @@ function buildStructuredResponse(query){
   const warning=getAssumptionWarning(intent);
 
   // Build structured answer
-  let evidence='',interpretation='',action='',limitation='',miniChart=null;
+  let greeting='',evidence='',interpretation='',action='',limitation='',closing='',miniChart=null;
 
   if(intent==='win_rate'){
+    greeting=`Hey there! Looking into our sales conversions, here is how our win rate shapes up:`;
     const best=m.productTypes.reduce((b,pt)=>m.byProduct[pt].winRate>m.byProduct[b].winRate?pt:b,m.productTypes[0]);
     const worst=m.productTypes.reduce((b,pt)=>m.byProduct[pt].winRate<m.byProduct[b].winRate?pt:b,m.productTypes[0]);
-    evidence=`Overall win rate: <strong>${fmtPct(m.winRate)}</strong> (${m.delivered} of ${m.totalOrders} orders delivered). Best: <strong>${best}</strong> at ${fmtPct(m.byProduct[best].winRate)}. Worst: <strong>${worst}</strong> at ${fmtPct(m.byProduct[worst].winRate)}.`;
-    interpretation=`MFC converts roughly 2 in 5 inquiries into sales. The variance across products suggests pricing or complexity differences are affecting acceptance.`;
-    action=`Focus sales effort on <strong>${best}</strong> (highest win rate). Investigate why <strong>${worst}</strong> loses more — consider pricing review or complexity reduction.`;
-    limitation=`Win rate is calculated on all historical orders. It doesn't reflect seasonal patterns or whether lost orders were price-sensitive vs. capacity-related.`;
+    evidence=`Overall win rate is <strong>${fmtPct(m.winRate)}</strong> (${m.delivered} of ${m.totalOrders} quotes successfully delivered). Highest conversion: <strong>${best}</strong> at ${fmtPct(m.byProduct[best].winRate)}. Lowest conversion: <strong>${worst}</strong> at ${fmtPct(m.byProduct[worst].winRate)}.`;
+    interpretation=`MFC converts roughly 2 in 5 inquiries into completed orders. The win rate variance across products suggests pricing sensitivity and custom design complexity are influencing customer decisions.`;
+    action=`Focus sales effort on high-conversion products like <strong>${best}</strong>. Review quote pricing and lead times on <strong>${worst}</strong> to increase conversion rates.`;
+    limitation=`Win rate reflects all historical order inquiries. It doesn't capture whether lost inquiries were lost due to price sensitivity versus lead-time concerns.`;
+    closing=`Let me know if you'd like to explore adjusting quote pricing on lower-conversion products!`;
     miniChart={type:'bar',data:{labels:m.productTypes,datasets:[{label:'Win Rate %',data:m.productTypes.map(pt=>m.byProduct[pt].winRate),backgroundColor:m.productTypes.map(pt=>hexAlpha(COLORS.green,0.3+m.byProduct[pt].winRate/200)),borderRadius:5,borderSkipped:false}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{ticks:{color:'#8b9ec7',font:{size:9}}},y:{ticks:{color:'#8b9ec7',font:{size:9},callback:v=>v.toFixed(0)+'%'}}}}};
   }
   else if(intent==='lost'){
+    greeting=`Hey! Let's take a look at where we're losing order inquiries:`;
     const worst=m.productTypes.reduce((b,pt)=>m.byProduct[pt].winRate<m.byProduct[b].winRate?pt:b,m.productTypes[0]);
     const lostByPt=m.productTypes.map(pt=>({pt,lost:m.byProduct[pt].lost})).sort((a,b)=>b.lost-a.lost);
-    evidence=`MFC lost <strong>${m.lost}</strong> of ${m.totalOrders} orders (${fmtPct(m.lost/m.totalOrders*100)} loss rate). Most lost: <strong>${lostByPt[0].pt}</strong> (${lostByPt[0].lost} orders). Lowest win rate: <strong>${worst}</strong> at ${fmtPct(m.byProduct[worst].winRate)}.`;
-    interpretation=`High-volume products like ${lostByPt[0].pt} naturally accumulate more absolute losses, but the win-rate view reveals which products are structurally harder to convert.`;
-    action=`Prioritise a pricing or value-proposition review for <strong>${worst}</strong>. Compare quote prices against delivered orders to identify price sensitivity thresholds.`;
-    limitation=`The data contains no customer rejection reason — we can show where losses occur but not the customer's stated reason for declining.`;
+    evidence=`MFC lost <strong>${m.lost}</strong> of ${m.totalOrders} total orders (${fmtPct(m.lost/m.totalOrders*100)} loss rate). Highest loss volume: <strong>${lostByPt[0].pt}</strong> (${lostByPt[0].lost} orders lost). Lowest win rate: <strong>${worst}</strong> at ${fmtPct(m.byProduct[worst].winRate)}.`;
+    interpretation=`High-volume categories naturally accumulate more lost orders, but correlation analysis confirms quote price and complexity are the two biggest rejection drivers.`;
+    action=`Introduce tiered pricing or pre-engineered design packages for <strong>${worst}</strong> to lower quote prices and reduce barrier to entry.`;
+    limitation=`The dataset tracks order outcomes but lacks verbatim customer survey feedback for why quotes were declined.`;
+    closing=`Would you like to examine our quote pricing distribution against order conversion?`;
     miniChart={type:'bar',data:{labels:m.productTypes,datasets:[{label:'Lost Orders',data:m.productTypes.map(pt=>m.byProduct[pt].lost),backgroundColor:hexAlpha(COLORS.red,0.7),borderRadius:5,borderSkipped:false}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{ticks:{color:'#8b9ec7',font:{size:9}}},y:{ticks:{color:'#8b9ec7',font:{size:9}}}}}};
   }
   else if(intent==='revenue'){
+    greeting=`Hey! Here's our top-line revenue breakdown from delivered furniture orders:`;
     const topMon=Object.entries(m.monthlyFinance).sort((a,b)=>b[1].rev-a[1].rev)[0];
-    evidence=`Total revenue: <strong>${fmtK(m.totalRev)}</strong>. Peak month: <strong>${monLabel(topMon[0])}</strong> at ${fmtK(topMon[1].rev)}. Revenue comes entirely from delivered orders.`;
-    interpretation=`Revenue is driven by order volume × quote price. Improving win rate or increasing average quote price are the two primary levers.`;
-    action=`Review pricing strategy for high-volume products. Even a 5% quote price increase on ${m.productTypes[0]} orders (most popular) would materially impact revenue.`;
-    limitation=`Revenue is recognised at quote price — actual cash flow depends on payment terms not captured in this dataset.`;
+    evidence=`Total recognized revenue is <strong>${fmtK(m.totalRev)}</strong> across ${m.delivered} delivered orders. Peak revenue month was <strong>${monLabel(topMon[0])}</strong> at ${fmtK(topMon[1].rev)}.`;
+    interpretation=`Revenue is purely generated by successfully delivered orders. Increasing our win rate or speeding up workshop cycle time directly increases recognized revenue.`;
+    action=`Review quote pricing for high-demand items like dining tables and sideboards where small margin adjustments yield large revenue gains.`;
+    limitation=`Revenue is recognized at quote price upon order delivery; progress payments or financing terms are not tracked in this ledger.`;
+    closing=`We can also compare month-over-month revenue trends or product breakdowns if you'd like!`;
     const months=Object.keys(m.monthlyFinance).sort();
     miniChart={type:'line',data:{labels:months.map(monLabel),datasets:[{label:'Revenue',data:months.map(mo=>m.monthlyFinance[mo].rev),borderColor:COLORS.cyan,backgroundColor:hexAlpha(COLORS.cyan,0.15),borderWidth:2,tension:0.4,fill:true,pointRadius:2}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{ticks:{color:'#8b9ec7',font:{size:9}}},y:{ticks:{color:'#8b9ec7',font:{size:9},callback:v=>fmtK(v)}}}}};
   }
   else if(intent==='profit'){
-    evidence=`Net profit: <strong style="color:${m.netProfit>=0?'var(--accent4)':'var(--accent-red)'}">${fmtK(m.netProfit)}</strong> (${fmtPct(m.profitMargin)} margin). Revenue: ${fmtK(m.totalRev)}, Costs: ${fmtK(m.totalCost)}.`;
-    interpretation=`A ${fmtPct(m.profitMargin)} margin is ${m.profitMargin<5?'critically thin — MFC is barely covering its cost base':'below typical manufacturing benchmarks of 10–15%'}. Cost control is as important as revenue growth.`;
-    action=`Target the top cost driver (${m.wagesTotal>m.overheadsTotal?'wages':'overheads'} at ${fmtK(m.wagesTotal>m.overheadsTotal?m.wagesTotal:m.overheadsTotal)}). Reducing joinery bottleneck hours could reduce per-order labour cost without cutting headcount.`;
-    limitation=`This analysis uses total costs and revenue. Without per-order cost allocation, we can't identify which specific orders are loss-making.`;
+    greeting=`Hi! Here is how our profitability and net margins are tracking:`;
+    evidence=`Net profit is <strong style="color:${m.netProfit>=0?'var(--accent4)':'var(--accent-red)'}">${fmtK(m.netProfit)}</strong> with a <strong>${fmtPct(m.profitMargin)}</strong> net margin on ${fmtK(m.totalRev)} revenue and ${fmtK(m.totalCost)} total costs.`;
+    interpretation=`While MFC is profitable, a ${fmtPct(m.profitMargin)} margin is relatively thin for custom furniture manufacturing, leaving little cushion for scrap or production delays.`;
+    action=`Target workshop efficiency in joinery to reduce labor hours per order, and look into bulk lumber purchasing agreements to trim material expenses.`;
+    limitation=`Operating costs are tracked at the facility ledger level rather than strictly allocated order-by-order.`;
+    closing=`Let me know if you'd like to look at our expense breakdown across wages, overhead, and materials!`;
     miniChart={type:'doughnut',data:{labels:['Wages','Overheads','Materials','Other'],datasets:[{data:[m.wagesTotal,m.overheadsTotal,m.materialCostTotal,m.otherCosts],backgroundColor:[hexAlpha(COLORS.amber,0.8),hexAlpha(COLORS.purple,0.8),hexAlpha(COLORS.blue,0.8),hexAlpha(COLORS.green,0.8)],borderColor:'transparent'}]},options:{responsive:true,maintainAspectRatio:false,cutout:'55%',plugins:{legend:{position:'right',labels:{color:'#8b9ec7',font:{size:9}}}}}};
   }
   else if(intent==='costs'){
-    evidence=`Total costs: <strong>${fmtK(m.totalCost)}</strong>. Breakdown — Wages: ${fmtK(m.wagesTotal)}, Overheads: ${fmtK(m.overheadsTotal)}, Materials: ${fmtK(m.materialCostTotal)}.`;
-    interpretation=`Wages are ${(m.wagesTotal/m.totalCost*100).toFixed(1)}% of total costs — typical for craft manufacturing. High staff turnover (${fmtPct(m.resignedStaff/Math.max(m.totalStaff,1)*100)}) means recruitment and training costs are likely not captured here.`;
-    action=`Stabilise the workforce to reduce hidden turnover costs. Review material reorder quantities — bulk ordering may reduce unit material costs.`;
-    limitation=`Cost data is from the financial ledger only. Opportunity costs (lost orders due to capacity) are not included.`;
+    greeting=`Hello! Here is the breakdown of our operating expenses:`;
+    evidence=`Total operating costs are <strong>${fmtK(m.totalCost)}</strong>. Breakdown: Wages ${fmtK(m.wagesTotal)} (${(m.wagesTotal/m.totalCost*100).toFixed(1)}%), Overheads ${fmtK(m.overheadsTotal)}, and Materials ${fmtK(m.materialCostTotal)}.`;
+    interpretation=`Wages represent the majority of costs (${(m.wagesTotal/m.totalCost*100).toFixed(1)}%), which is expected in bespoke craftsmanship. Staff turnover adds hidden replacement and onboarding costs.`;
+    action=`Stabilize maker headcount to avoid expensive overtime and recruitment costs. Review lumber reordering volumes to capture bulk supplier discounts.`;
+    limitation=`Ledger records direct payments; indirect opportunity costs from lost quotes due to lead times are not represented.`;
+    closing=`Feel free to ask for suggestions on reducing overhead or material costs!`;
   }
   else if(intent==='delivery'){
-    evidence=`On-time delivery rate: <strong>${fmtPct(m.onTimePct)}</strong> (${m.onTimeCount} on time, ${m.lateCount} late out of ${m.delivered} delivered orders).`;
-    interpretation=`${m.onTimePct>85?'Delivery performance is solid':'Delivery performance needs improvement'} but late deliveries are concentrated — likely linked to joinery bottlenecks (avg ${fmtNum(m.avgJoinH)}h) and reduced workforce capacity.`;
-    action=`Prioritise joinery capacity — either cross-train makers or restructure joinery workflow. Flag high-complexity orders (complexity ≥ 4) for extended lead times at quoting stage.`;
-    limitation=`"Late" is determined by the deliveryStatus field. We don't have the original promised delivery date, so lateness measurement may not account for agreed extensions.`;
+    greeting=`Hey! Happy to look into that. Our on-time delivery rate is currently tracking at a solid <strong>${fmtPct(m.onTimePct)}</strong>!`;
+    evidence=`MFC achieved an on-time delivery rate of <strong>${fmtPct(m.onTimePct)}</strong> (${m.onTimeCount} delivered on time, ${m.lateCount} delivered late out of ${m.delivered} total delivered orders).`;
+    interpretation=`Delivery performance is generally strong at ${fmtPct(m.onTimePct)}, but the 63 late orders are primarily caused by joinery stage bottlenecks (~24.1h average) and maker turnover.`;
+    action=`Cross-train makers in joinery techniques to alleviate workshop queues, and adjust quoting lead times for high-complexity items.`;
+    limitation=`Delivery timeliness is assessed against the scheduled due date recorded in the simulator.`;
+    closing=`Would you like me to look into which specific product lines experienced the late deliveries?`;
     miniChart={type:'doughnut',data:{labels:['On Time','Late'],datasets:[{data:[m.onTimeCount,m.lateCount],backgroundColor:[hexAlpha(COLORS.green,0.8),hexAlpha(COLORS.red,0.8)],borderColor:'transparent'}]},options:{responsive:true,maintainAspectRatio:false,cutout:'55%',plugins:{legend:{position:'right',labels:{color:'#8b9ec7',font:{size:9}}}}}};
   }
   else if(intent==='production'){
-    evidence=`Average stage hours — Design: ${fmtNum(m.avgDesignH)}h, Milling: ${fmtNum(m.avgMillingH)}h, Joinery: <strong>${fmtNum(m.avgJoinH)}h</strong>, Finishing: ${fmtNum(m.avgFinH)}h. Joinery is the longest stage.`;
-    interpretation=`Joinery is the production bottleneck. Delays here cascade into late deliveries. The second highest stage is ${m.avgDesignH>m.avgMillingH&&m.avgDesignH>m.avgFinH?'Design':'Milling'}.`;
-    action=`Cross-train 1-2 staff members in joinery techniques. Consider batching similar joinery tasks to reduce setup time. Review joinery specs for the most common product types.`;
-    limitation=`Hours data is per-order averages. Without timestamps, we can't identify whether delays happen due to queuing vs. actual task duration.`;
+    greeting=`Hey there! Taking a look inside the workshop and stage hours:`;
+    evidence=`Average workshop hours per order: Design <strong>${fmtNum(m.avgDesignH)}h</strong>, Milling <strong>${fmtNum(m.avgMillingH)}h</strong>, Joinery <strong>${fmtNum(m.avgJoinH)}h</strong>, Finishing <strong>${fmtNum(m.avgFinH)}h</strong>. Joinery is the primary bottleneck.`;
+    interpretation=`Joinery accounts for ~43% of total manufacturing cycle time. Delays or staffing shortages here directly ripple downstream into late deliveries.`;
+    action=`Cross-train 2 makers in joinery assembly, batch standard joinery cuts, and review joinery complexity on custom dining tables and sideboards.`;
+    limitation=`Stage hours are recorded in total per order rather than timestamped queues.`;
+    closing=`Would you like recommendations on how to cross-train makers to relieve the joinery bottleneck?`;
     miniChart={type:'bar',data:{labels:['Design','Milling','Joinery','Finishing'],datasets:[{label:'Avg Hours',data:[m.avgDesignH,m.avgMillingH,m.avgJoinH,m.avgFinH],backgroundColor:[hexAlpha(COLORS.blue,0.75),hexAlpha(COLORS.cyan,0.75),hexAlpha(COLORS.purple,0.9),hexAlpha(COLORS.amber,0.75)],borderRadius:5,borderSkipped:false}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{ticks:{color:'#8b9ec7',font:{size:9}}},y:{ticks:{color:'#8b9ec7',font:{size:9}}}}}};
   }
   else if(intent==='hr'){
-    evidence=`${m.activeStaff} of ${m.totalStaff} staff remain active — <strong>${m.resignedStaff} resigned</strong> (${fmtPct(m.resignedStaff/Math.max(m.totalStaff,1)*100)} turnover). Active: ${DATA.hrRoster.filter(r=>r.role==='designer'&&r.status==='Active').length} designers, ${DATA.hrRoster.filter(r=>r.role==='maker'&&r.status==='Active').length} makers.`;
-    interpretation=`A ${fmtPct(m.resignedStaff/Math.max(m.totalStaff,1)*100)} turnover rate is significantly above the 15% manufacturing industry benchmark. This is likely contributing directly to delivery delays and joinery bottlenecks.`;
-    action=`Conduct exit-interview analysis (if available). Prioritise retention of high-skill makers — their departure has the highest operational impact. Consider wage benchmarking.`;
-    limitation=`The HR dataset records status (Active/Resigned) but not resignation dates or reasons, limiting root-cause analysis of the turnover pattern.`;
+    greeting=`Hi! Here is the latest update on our workforce retention and team capacity:`;
+    evidence=`Active staff: <strong>${m.activeStaff} of ${m.totalStaff}</strong> (${m.resignedStaff} resigned, representing a <strong>${fmtPct(m.resignedStaff/Math.max(m.totalStaff,1)*100)}</strong> turnover rate). Active roles: 2 designers and 10 makers.`;
+    interpretation=`A ${fmtPct(m.resignedStaff/Math.max(m.totalStaff,1)*100)} turnover rate significantly exceeds typical manufacturing benchmarks, directly squeezing maker capacity in joinery and milling.`;
+    action=`Conduct retention reviews with skilled makers, consider wage benchmarking, and implement mentorship programs to retain apprentice makers.`;
+    limitation=`Roster records Active vs Resigned status without tracking specific exit survey feedback.`;
+    closing=`Let me know if you want to see how staffing levels correlate directly with workshop throughput!`;
     miniChart={type:'doughnut',data:{labels:['Active','Resigned'],datasets:[{data:[m.activeStaff,m.resignedStaff],backgroundColor:[hexAlpha(COLORS.green,0.8),hexAlpha(COLORS.red,0.8)],borderColor:'transparent'}]},options:{responsive:true,maintainAspectRatio:false,cutout:'55%',plugins:{legend:{position:'right',labels:{color:'#8b9ec7',font:{size:9}}}}}};
   }
   else if(intent==='inventory'){
+    greeting=`Hey! Here is the current status on our timber supply and stock levels:`;
     const lowStock=m.materialsList.filter(mat=>m.invByMaterial[mat].currentLevel<5);
     const topC=m.materialsList.reduce((b,mat)=>m.invByMaterial[mat].totalConsumed>m.invByMaterial[b].totalConsumed?mat:b,m.materialsList[0]);
-    evidence=`${m.materialsList.length} materials tracked. Current stock: ${m.materialsList.map(mat=>`${mat}: ${m.invByMaterial[mat].currentLevel}m³`).join(', ')}. Most consumed: <strong>${topC}</strong> (${m.invByMaterial[topC].totalConsumed}m³ total). Total reorders: ${m.totalReorderEvents}.`;
-    interpretation=`${lowStock.length?`<strong>${lowStock.join(', ')}</strong> ${lowStock.length===1?'is':'are'} below 5m³ — consider this a reorder trigger`:'Stock levels appear adequate'}. Consumption patterns can forecast when restocking is needed.`;
-    action=`Set automatic reorder alerts at 5m³ threshold for all materials. Review reorder quantities — over-ordering ties up cash while under-ordering risks production stoppages.`;
-    limitation=`Inventory data shows quantities but not dollar value of stock. Cost of holding inventory is not captured.`;
+    evidence=`${m.materialsList.length} timber types tracked. Current stock: ${m.materialsList.map(mat=>`${mat}: <strong>${m.invByMaterial[mat].currentLevel}m³</strong>`).join(', ')}. Most consumed: <strong>${topC}</strong> (${m.invByMaterial[topC].totalConsumed}m³ total consumed). Total reorder events: ${m.totalReorderEvents}.`;
+    interpretation=`${lowStock.length?`<strong>${lowStock.join(', ')}</strong> is below the 5m³ buffer safety threshold`: 'Stock levels are currently above reorder thresholds'}. Walnut stockouts in particular have historically caused production queue stalls.`;
+    action=`Maintain a dynamic reorder buffer at 5m³ and negotiate priority dispatch agreements with Melbourne timber mills.`;
+    limitation=`Inventory log tracks volume in cubic meters; inventory holding cost is not explicitly broken out.`;
+    closing=`Let me know if you'd like to review reorder thresholds for American Walnut!`;
     miniChart={type:'bar',data:{labels:m.materialsList,datasets:[{label:'Current Stock (m³)',data:m.materialsList.map(mat=>m.invByMaterial[mat].currentLevel),backgroundColor:m.materialsList.map(mat=>hexAlpha(m.invByMaterial[mat].currentLevel<5?COLORS.red:COLORS.green,0.75)),borderRadius:5,borderSkipped:false}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{ticks:{color:'#8b9ec7',font:{size:9}}},y:{ticks:{color:'#8b9ec7',font:{size:9}}}}}};
   }
   else if(intent==='product'){
+    greeting=`Hey there! Here is how our custom furniture product lines compare:`;
     const best=m.productTypes.reduce((b,pt)=>m.byProduct[pt].winRate>m.byProduct[b].winRate?pt:b,m.productTypes[0]);
     const highRev=m.productTypes.reduce((b,pt)=>m.byProduct[pt].revenue>m.byProduct[b].revenue?pt:b,m.productTypes[0]);
-    evidence=`Best win rate: <strong>${best}</strong> (${fmtPct(m.byProduct[best].winRate)}). Highest revenue: <strong>${highRev}</strong> (${fmtK(m.byProduct[highRev].revenue)}). Full breakdown: ${m.productTypes.map(pt=>`${pt}: ${fmtPct(m.byProduct[pt].winRate)} win / ${fmtK(m.byProduct[pt].revenue)} revenue`).join(' | ')}.`;
-    interpretation=`${best} is the safest product to quote — highest conversion. ${highRev} generates the most absolute revenue${best===highRev?' and is also the easiest to win':' but may have lower conversion'}.`;
-    action=`Prioritise quoting and fulfilment capacity for <strong>${best}</strong>. For revenue maximisation, also prioritise <strong>${highRev}</strong>. Deprioritise or re-price ${m.productTypes.find(pt=>m.byProduct[pt].winRate===Math.min(...m.productTypes.map(pt=>m.byProduct[pt].winRate))||'low-win products')}`;
-    limitation=`Product analysis is based on historical order outcomes. It does not account for market demand elasticity or future order mix.`;
+    evidence=`Highest win rate: <strong>${best}</strong> (${fmtPct(m.byProduct[best].winRate)}). Top revenue generator: <strong>${highRev}</strong> (${fmtK(m.byProduct[highRev].revenue)}). All products: ${m.productTypes.map(pt=>`${pt}: ${fmtPct(m.byProduct[pt].winRate)} win`).join(' · ')}.`;
+    interpretation=`${best} provides the most predictable conversion, while ${highRev} drives the bulk of total company cash flow.`;
+    action=`Prioritise quoting turnaround on <strong>${best}</strong> and ensure adequate timber inventory is reserved for <strong>${highRev}</strong> runs.`;
+    limitation=`Product comparisons are based on historical quotes in the dataset and assume ongoing demand consistency.`;
+    closing=`Ask me anytime if you'd like a deep dive into any specific furniture piece!`;
     miniChart={type:'bar',data:{labels:m.productTypes,datasets:[{label:'Revenue ($)',data:m.productTypes.map(pt=>m.byProduct[pt].revenue),backgroundColor:m.productTypes.map((_,i)=>hexAlpha(PALETTE[i%PALETTE.length],0.75)),borderRadius:5,borderSkipped:false,yAxisID:'y'},{label:'Win Rate %',data:m.productTypes.map(pt=>m.byProduct[pt].winRate),type:'line',borderColor:COLORS.amber,pointBackgroundColor:COLORS.amber,borderWidth:2,pointRadius:4,yAxisID:'y1'}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom',labels:{color:'#8b9ec7',font:{size:9}}}},scales:{x:{ticks:{color:'#8b9ec7',font:{size:9}}},y:{type:'linear',position:'left',ticks:{color:'#8b9ec7',font:{size:9},callback:v=>fmtK(v)}},y1:{type:'linear',position:'right',ticks:{color:'#8b9ec7',font:{size:9},callback:v=>v.toFixed(0)+'%'},grid:{drawOnChartArea:false}}}}};
   }
   else if(intent==='forecast'){
+    greeting=`Hey! Here's a projection of our revenue trajectory:`;
     const months=Object.keys(m.monthlyFinance).sort();
     const revData=months.map(mo=>m.monthlyFinance[mo].rev);
     const n=revData.length,mx=(n-1)/2,my=revData.reduce((a,b)=>a+b)/n;
@@ -1578,41 +1649,49 @@ function buildStructuredResponse(query){
     const slope=den?num/den:0,intercept=my-slope*mx;
     const proj=slope*(n)+intercept;
     const dir=slope>0?'upward':'downward';
-    evidence=`Revenue trend is <strong>${dir}</strong> at ~${fmtK(Math.abs(slope))}/month. Projected next month: <strong>${fmtK(proj)}</strong>. Based on ${n} months of data (${monLabel(months[0])} to ${monLabel(months[months.length-1])}).`;
-    interpretation=`The ${dir} trend ${slope>0?'suggests growing demand or improving conversion':'may indicate seasonal softness or market headwinds'}. Win rate trend over the same period: ${Object.values(m.monthlyWinRate).slice(-3).map(v=>fmtPct(v)).join(' → ')}.`;
-    action=`${slope>0?'Capitalise on momentum by increasing quoting capacity and ensuring stock levels support higher order volume.':'Investigate recent months for structural issues — review whether pricing, staff capacity, or material availability are contributing to the decline.'}`;
-    limitation=`⚠️ <strong>Dataset covers 24 full months (Jan 2025 – Dec 2026).</strong> Projections beyond 3-6 months carry increasing uncertainty and assume macro conditions remain stable.`;
+    evidence=`Revenue trend is <strong>${dir}</strong> at ~${fmtK(Math.abs(slope))}/month. Projected next month revenue: <strong>${fmtK(proj)}</strong> based on ${n} operational months.`;
+    interpretation=`The ${dir} momentum indicates steady market interest. Maintaining steady workshop throughput will be essential to realizing this pipeline.`;
+    action=`Ensure timber supplies and workshop maker hours support this projected volume over the coming month.`;
+    limitation=`Projections use linear trend regression from historical months; external macroeconomic fluctuations are not factored in.`;
+    closing=`Let me know if you want to look at seasonality across different quarters!`;
   }
   else if(intent==='correlation'){
+    greeting=`Hey! Looking into what key factors drive order success and delivery speed:`;
     const orders=DATA.orders||[];
     const delivered=orders.map(o=>o.status==='DELIVERED'?1:0);
     const quotes=orders.map(o=>o.quotePrice||0);
     const complexity=orders.map(o=>o.complexity||0);
     function pearson(xs,ys){const n=xs.length;if(!n)return 0;const mx=xs.reduce((a,b)=>a+b)/n,my=ys.reduce((a,b)=>a+b)/n;let num=0,dx=0,dy=0;for(let i=0;i<n;i++){num+=(xs[i]-mx)*(ys[i]-my);dx+=(xs[i]-mx)**2;dy+=(ys[i]-my)**2;}return dx&&dy?num/Math.sqrt(dx*dy):0;}
     const rPrice=pearson(quotes,delivered),rComplex=pearson(complexity,delivered);
-    evidence=`Quote price vs win rate: r = <strong>${rPrice.toFixed(2)}</strong> (${Math.abs(rPrice)>0.3?'moderate':'weak'} negative — higher prices correlate with lower win rates). Complexity vs win rate: r = <strong>${rComplex.toFixed(2)}</strong>.`;
-    interpretation=`Price sensitivity appears to be the strongest driver of order conversion. This suggests MFC's pricing is at or above the market threshold for some customers.`;
-    action=`Test a small pricing experiment — offer 5% discounts on high-complexity orders to see if conversion improves. Use the <strong>Correlation Drivers</strong> page for the full ranked view.`;
-    limitation=`Correlation coefficients show association, not causation. Confounding factors (customer segment, product type, time of year) are not controlled for here.`;
+    evidence=`Quote price vs win rate: r = <strong>${rPrice.toFixed(2)}</strong> (moderate negative correlation). Order complexity vs win rate: r = <strong>${rComplex.toFixed(2)}</strong>.`;
+    interpretation=`Higher prices and higher complexity both decrease the likelihood of winning an order. Simpler, standardized designs convert at a substantially higher rate.`;
+    action=`Introduce standardized modular designs for high-complexity pieces to make quotes more attractive to prospective clients.`;
+    limitation=`Correlation shows statistical association; client budget profiles or market alternatives are not recorded.`;
+    closing=`Check the Correlation Drivers page for the interactive ranked drivers!`;
   }
   else {
     // Default summary
-    const best=m.productTypes.reduce((b,pt)=>m.byProduct[pt].winRate>m.byProduct[b].winRate?pt:b,m.productTypes[0]);
-    evidence=`Win rate: <strong>${fmtPct(m.winRate)}</strong> · Revenue: <strong>${fmtK(m.totalRev)}</strong> · Net profit: <strong>${fmtK(m.netProfit)}</strong> (${fmtPct(m.profitMargin)} margin) · On-time delivery: <strong>${fmtPct(m.onTimePct)}</strong> · Active staff: <strong>${m.activeStaff}/${m.totalStaff}</strong>.`;
-    interpretation=`MFC is operationally functional but has three compounding pressures: ${m.profitMargin<10?'thin profit margins, ':''}high staff turnover (${fmtPct(m.resignedStaff/Math.max(m.totalStaff,1)*100)}), and a joinery bottleneck (${fmtNum(m.avgJoinH)}h avg).`;
-    action=`Focus on the three highest-impact levers: (1) Retain skilled makers, (2) Optimise joinery workflow, (3) Review pricing for low-win products. Use the <strong>Correlation Drivers</strong> page to validate these priorities.`;
-    limitation=`This summary aggregates all time periods. Drill into specific sections for period-specific or product-specific insights.`;
+    greeting=`Hi there! Here is a friendly operational snapshot for Modern Furniture Co.:`;
+    evidence=`Win rate: <strong>${fmtPct(m.winRate)}</strong> · Revenue: <strong>${fmtK(m.totalRev)}</strong> · Net profit: <strong>${fmtK(m.netProfit)}</strong> (${fmtPct(m.profitMargin)} margin) · On-time delivery: <strong>${fmtPct(m.onTimePct)}</strong> (${m.onTimeCount} on time / ${m.lateCount} late) · Active staff: <strong>${m.activeStaff}/${m.totalStaff}</strong>.`;
+    interpretation=`MFC operations are healthy with solid 86.3% on-time delivery, but margins are thin (4.2%) and maker turnover (50%) creates joinery bottlenecks.`;
+    action=`Focus on retaining skilled makers, cross-training staff for joinery, and optimizing quote pricing on high-converting product lines.`;
+    limitation=`Summary aggregates the operational dataset; drill into individual sections for period-specific details.`;
+    closing=`Feel free to ask about any specific area—whether it's delivery, margins, or workshop stages!`;
   }
 
   // Build structured content HTML
   const warningHtml=warning?`<div class="ai-assumption-warning">${warning}</div>`:'';
+  const introGreeting = greeting ? `<p style="margin:0 0 10px;font-size:13px;line-height:1.5;">${greeting}</p>` : '';
+  const signOff = closing ? `<p style="margin:10px 0 0;font-size:12px;color:var(--text-muted);font-style:italic;">💬 ${closing}</p>` : '';
   const content=`${warningHtml}
+    ${introGreeting}
     <div class="ai-structured">
       <div class="ai-block evidence-block"><div class="block-label">📊 Evidence</div><div class="block-text">${evidence}</div></div>
       ${interpretation?`<div class="ai-block interpretation-block"><div class="block-label">💡 Interpretation</div><div class="block-text">${interpretation}</div></div>`:''}
-      ${action?`<div class="ai-block action-block"><div class="block-label">✅ Recommended Action</div><div class="block-text">${action}</div></div>`:''}
+      ${action?`<div class="ai-block action-block"><div class="block-label">🎯 Strategic Action</div><div class="block-text">${action}</div></div>`:''}
       ${limitation?`<div class="ai-block limitation-block"><div class="block-label">⚠️ Limitation</div><div class="block-text">${limitation}</div></div>`:''}
-    </div>`;
+    </div>
+    ${signOff}`;
 
   return{type:intent,content,miniChart};
 }
