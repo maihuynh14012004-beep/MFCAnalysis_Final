@@ -1044,6 +1044,8 @@ try {
   }
 } catch (e) {}
 
+let workingGeminiModel = localStorage.getItem('mfc_gemini_working_model') || '';
+
 function updateGeminiStatusUI(){
   const dot = document.getElementById('gemini-status-dot');
   const txt = document.getElementById('gemini-status-text');
@@ -1052,8 +1054,8 @@ function updateGeminiStatusUI(){
   if (keyInput && GEMINI_API_KEY) keyInput.value = GEMINI_API_KEY;
   if (GEMINI_API_KEY) {
     if (dot) dot.style.background = '#10b981';
-    if (txt) txt.textContent = 'Gemini 1.5 Active';
-    if (modalMode) modalMode.innerHTML = '<span style="color:#10b981;font-weight:700;">● Google Gemini 1.5 Flash Active (Live GenAI)</span>';
+    if (txt) txt.textContent = workingGeminiModel ? `Gemini Active (${workingGeminiModel})` : 'Gemini Connected';
+    if (modalMode) modalMode.innerHTML = `<span style="color:#10b981;font-weight:700;">● Google Gemini Active (${workingGeminiModel || 'Auto-Selecting Model'})</span>`;
   } else {
     if (dot) dot.style.background = '#f59e0b';
     if (txt) txt.textContent = 'Offline Engine (Connect Gemini)';
@@ -1080,16 +1082,20 @@ window.saveGeminiKey = function(){
   if (val) {
     GEMINI_API_KEY = val;
     localStorage.setItem('mfc_gemini_api_key', val);
+    workingGeminiModel = '';
+    localStorage.removeItem('mfc_gemini_working_model');
   }
   updateGeminiStatusUI();
   const modal = document.getElementById('gemini-modal');
   if (modal) modal.style.display = 'none';
-  addAIPageMsg('ai', null, `✨ <strong>Google Gemini 1.5 Flash Connected!</strong> FurBuddy will now reason directly using live Generative AI over MFC's operational dataset.`, 'welcome');
+  addAIPageMsg('ai', null, `✨ <strong>Google Gemini Key Connected!</strong> FurBuddy will dynamically select the best available model for your account and reason live over MFC's data.`, 'welcome');
 };
 
 window.clearGeminiKey = function(){
   GEMINI_API_KEY = '';
+  workingGeminiModel = '';
   localStorage.removeItem('mfc_gemini_api_key');
+  localStorage.removeItem('mfc_gemini_working_model');
   const input = document.getElementById('gemini-api-key-input');
   if (input) input.value = '';
   updateGeminiStatusUI();
@@ -1112,6 +1118,33 @@ function formatMarkdownText(md){
     .replace(/\n\n+/g, '<br><br>')
     .replace(/\n/g, '<br>');
   return html;
+}
+
+async function getAvailableGeminiModel(){
+  if (workingGeminiModel) return workingGeminiModel;
+  try {
+    const listRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${GEMINI_API_KEY}`);
+    if (listRes.ok) {
+      const data = await listRes.json();
+      const models = (data.models || [])
+        .filter(m => m.supportedGenerationMethods && m.supportedGenerationMethods.includes('generateContent'))
+        .map(m => m.name.replace(/^models\//, ''));
+      
+      const best = models.find(m => m.includes('flash') && !m.includes('lite') && !m.includes('thinking'))
+                || models.find(m => m.includes('flash'))
+                || models.find(m => m.includes('gemini'))
+                || models[0];
+      if (best) {
+        workingGeminiModel = best;
+        localStorage.setItem('mfc_gemini_working_model', best);
+        updateGeminiStatusUI();
+        return best;
+      }
+    }
+  } catch (e) {
+    console.warn('Dynamic model query failed, falling back to candidate list:', e);
+  }
+  return 'gemini-2.5-flash';
 }
 
 async function callGeminiAPI(query){
@@ -1140,35 +1173,66 @@ Answer the manager's inquiry using these 4 structured sections formatted in HTML
 
 Privacy Guardrail: Protect individual customer identities and personal salary info. Aggregate metrics only.`;
 
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`;
-  const payload = {
-    contents: [
-      {
-        role: 'user',
-        parts: [{ text: `${systemPrompt}\n\nManager Question: "${query}"` }]
+  const initialModel = await getAvailableGeminiModel();
+  const candidates = [
+    initialModel,
+    'gemini-2.5-flash',
+    'gemini-2.0-flash',
+    'gemini-1.5-flash-latest',
+    'gemini-1.5-flash-002',
+    'gemini-1.5-pro',
+    'gemini-2.5-pro'
+  ].filter((v, i, a) => v && a.indexOf(v) === i);
+
+  let lastError = null;
+  for (const model of candidates) {
+    try {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`;
+      const payload = {
+        contents: [
+          {
+            role: 'user',
+            parts: [{ text: `${systemPrompt}\n\nManager Question: "${query}"` }]
+          }
+        ],
+        generationConfig: {
+          temperature: 0.2,
+          maxOutputTokens: 1000
+        }
+      };
+
+      const resp = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      if (resp.ok) {
+        const resData = await resp.json();
+        let text = resData.candidates?.[0]?.content?.parts?.[0]?.text || '';
+        if (text) {
+          workingGeminiModel = model;
+          localStorage.setItem('mfc_gemini_working_model', model);
+          updateGeminiStatusUI();
+          return { text: formatMarkdownText(text.trim()), model };
+        }
+      } else {
+        const err = await resp.json().catch(() => ({}));
+        lastError = new Error(err.error?.message || `HTTP ${resp.status}`);
+        // If not a model-not-found error, don't try other models (e.g. invalid key or billing issue)
+        if (resp.status !== 404 && !lastError.message?.toLowerCase().includes('not found')) {
+          throw lastError;
+        }
       }
-    ],
-    generationConfig: {
-      temperature: 0.2,
-      maxOutputTokens: 1000
+    } catch (e) {
+      lastError = e;
+      if (!e.message?.toLowerCase().includes('not found') && !e.message?.includes('404')) {
+        throw e;
+      }
     }
-  };
-
-  const resp = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload)
-  });
-
-  if (!resp.ok) {
-    const err = await resp.json().catch(() => ({}));
-    throw new Error(err.error?.message || `HTTP ${resp.status}`);
   }
 
-  const resData = await resp.json();
-  let text = resData.candidates?.[0]?.content?.parts?.[0]?.text || '';
-  if (!text) throw new Error('No answer generated by Gemini');
-  return formatMarkdownText(text.trim());
+  throw lastError || new Error('No available Gemini model supported for this key');
 }
 
 function initAIPage(){
@@ -1225,11 +1289,12 @@ async function sendAIPageMsg(){
 
   if (GEMINI_API_KEY) {
     try {
-      const geminiHtml = await callGeminiAPI(text);
+      const geminiRes = await callGeminiAPI(text);
       removeAIPageTyping();
       const id='ans-'+(++answerCount);
-      const tag = `<div style="display:flex;align-items:center;gap:6px;font-size:11px;color:#10b981;font-weight:700;margin-bottom:8px;"><span style="width:6px;height:6px;border-radius:50%;background:#10b981;display:inline-block;"></span> ✨ GEMINI 1.5 FLASH (GENERATIVE REASONING)</div>`;
-      addAIPageMsg('ai', id, tag + geminiHtml, 'gemini-active');
+      const modelName = (geminiRes.model || 'Gemini').toUpperCase();
+      const tag = `<div style="display:flex;align-items:center;gap:6px;font-size:11px;color:#10b981;font-weight:700;margin-bottom:8px;"><span style="width:6px;height:6px;border-radius:50%;background:#10b981;display:inline-block;"></span> ✨ ${modelName} LIVE GENERATIVE REASONING</div>`;
+      addAIPageMsg('ai', id, tag + geminiRes.text, 'gemini-active');
       return;
     } catch (err) {
       console.warn('Gemini API call failed, falling back to local engine:', err);
@@ -1577,9 +1642,10 @@ async function sendFurnicoFABMsg(){
 
   if (GEMINI_API_KEY) {
     try {
-      const geminiHtml = await callGeminiAPI(text);
+      const geminiRes = await callGeminiAPI(text);
       document.getElementById('fcp-typing')?.remove();
-      addFCPMsg('ai', `<div style="font-size:10px;color:#10b981;font-weight:700;margin-bottom:4px;">✨ GEMINI 1.5 FLASH</div>${geminiHtml}<br><a href="#" onclick="navigateTo('ask-ai');closeFurnico();return false;" style="color:var(--accent);font-size:11px;display:inline-block;margin-top:6px;">Open in Ask AI tab →</a>`);
+      const modelName = (geminiRes.model || 'Gemini').toUpperCase();
+      addFCPMsg('ai', `<div style="font-size:10px;color:#10b981;font-weight:700;margin-bottom:4px;">✨ ${modelName}</div>${geminiRes.text}<br><a href="#" onclick="navigateTo('ask-ai');closeFurnico();return false;" style="color:var(--accent);font-size:11px;display:inline-block;margin-top:6px;">Open in Ask AI tab →</a>`);
       return;
     } catch (e) {
       console.warn('FAB Gemini error:', e);
