@@ -1,0 +1,480 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AnalyticsMCF – Modern Furniture Co.</title>
+  <meta name="description" content="AI-powered analytics platform for Modern Furniture Co. — Past, Present, Future intelligence." />
+  <link rel="stylesheet" href="style.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+</head>
+<body>
+
+<!-- ══ WELCOME SCREEN (secondary – Change Data Source only) ══ -->
+<div id="welcome-screen" style="display:none">
+  <div class="welcome-bg-glow"></div>
+  <div class="welcome-header">
+    <div class="welcome-logo">
+      <div class="logo-icon-lg">🪑</div>
+      <div><div class="welcome-brand">AnalyticsMCF</div><div class="welcome-brand-sub">Modern Furniture Co. · Melbourne, VIC</div></div>
+    </div>
+    <div class="welcome-badge"><span class="badge-dot"></span>AI-Powered · FY 2025</div>
+  </div>
+  <div class="welcome-hero">
+    <h1>Operational Intelligence Platform</h1>
+    <p>Real-time analytics across orders, finance, production, HR, and inventory.</p>
+  </div>
+  <div class="welcome-cards">
+    <div class="welcome-card" id="card-historic">
+      <div class="welcome-card-badge historic"><span>⏱</span> HISTORIC STORE AVAILABLE</div>
+      <div class="welcome-card-icon">🗄️</div>
+      <h2>Load User Historic Data</h2>
+      <p>Retrieve and rehydrate previous datasets saved in local memory from past upload sessions.</p>
+      <ul class="welcome-feature-list">
+        <li><span class="feat-check">✓</span><div><strong>Local Memory Persistence:</strong> Client-side storage of verified CSVs</div></li>
+        <li><span class="feat-check">✓</span><div><strong>Multi-Schema Rehydration:</strong> Orders, Ledger, Roster, Inventory</div></li>
+        <li><span class="feat-check">✓</span><div><strong>Session Recall:</strong> Instantly resume your last analytics session</div></li>
+      </ul>
+      <button class="welcome-btn historic-btn" id="btn-load-historic"><span>⏱</span> Load Historic Data from Storage →</button>
+      <div class="historic-status" id="historic-status"></div>
+    </div>
+    <div class="welcome-divider"><div class="divider-line"></div><span>OR</span><div class="divider-line"></div></div>
+    <div class="welcome-card" id="card-upload">
+      <div class="welcome-card-badge enterprise"><span>☁</span> CUSTOM ENTERPRISE UPLOAD</div>
+      <div class="welcome-card-icon">📤</div>
+      <h2>Upload Your Own Production CSVs</h2>
+      <p>Upload up to 7 custom operational CSV files. The Data Engineer Agent will automatically classify, profile, and clean them.</p>
+      <div class="drop-zone" id="drop-zone">
+        <div class="drop-zone-icon">📄</div>
+        <div class="drop-zone-text">Click to browse or drop CSV files here</div>
+        <div class="drop-zone-sub">Accepts .csv files (Orders, Ledger, Roster, Inventory)</div>
+        <input type="file" id="csv-file-input" multiple accept=".csv" style="display:none" />
+      </div>
+      <div class="uploaded-files" id="uploaded-files"></div>
+      <button class="welcome-btn upload-btn" id="btn-upload-csv" disabled><span>☁</span> Select &amp; Upload Custom CSVs</button>
+      <button class="welcome-btn demo-btn" id="btn-use-bundled">🎯 Use MFC Sample Data (Recommended for Demo)</button>
+    </div>
+  </div>
+  <div class="dea-panel" id="dea-panel" style="display:none">
+    <div class="dea-header">
+      <div class="dea-avatar">🛠️</div>
+      <div><div class="dea-title">Data Engineer Agent</div><div class="dea-sub" id="dea-sub">Classifying, profiling and cleaning your uploaded CSVs…</div></div>
+      <div class="dea-status-badge" id="dea-status-badge">Processing…</div>
+    </div>
+    <div class="dea-log" id="dea-log"></div>
+    <div class="dea-actions" id="dea-actions" style="display:none">
+      <button class="welcome-btn historic-btn" id="btn-proceed-dashboard">🚀 Proceed to Dashboard →</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ LOADING SCREEN ══ -->
+<div id="loading-screen">
+  <div class="loading-logo">🪑</div>
+  <div class="loading-text">AnalyticsMCF</div>
+  <div class="loading-sub">Loading operational data…</div>
+  <div class="loading-bar-wrap"><div class="loading-bar"></div></div>
+  <div class="loading-files" id="loading-files">Initialising…</div>
+</div>
+
+<!-- ══ SIDEBAR ══ -->
+<aside class="sidebar" id="sidebar" style="display:none">
+  <div class="sidebar-logo">
+    <div class="logo-icon">🪑</div>
+    <div class="logo-text">AnalyticsMCF<span>Modern Furniture Co.</span></div>
+  </div>
+
+  <nav class="sidebar-nav" id="sidebar-nav">
+    <div class="sidebar-section-label"><span class="sec-emoji">📜</span><span class="sec-text">Past</span></div>
+    <div class="nav-item active" data-page="overview" id="nav-overview"><span class="nav-icon">📊</span><span class="nav-label">Executive Snapshot</span></div>
+    <div class="nav-item" data-page="orders" id="nav-orders"><span class="nav-icon">📦</span><span class="nav-label">Orders &amp; Sales</span></div>
+    <div class="nav-item" data-page="finance" id="nav-finance"><span class="nav-icon">💰</span><span class="nav-label">Financial P&amp;L</span></div>
+    <div class="nav-item" data-page="hr" id="nav-hr"><span class="nav-icon">👥</span><span class="nav-label">Human Resources</span></div>
+    <div class="nav-item" data-page="inventory" id="nav-inventory"><span class="nav-icon">🏗️</span><span class="nav-label">Inventory History</span></div>
+
+    <div class="sidebar-section-label"><span class="sec-emoji">⚡</span><span class="sec-text">Present</span></div>
+    <div class="nav-item" data-page="operations" id="nav-operations"><span class="nav-icon">🏭</span><span class="nav-label">Operations Board</span></div>
+
+    <div class="sidebar-section-label"><span class="sec-emoji">🔮</span><span class="sec-text">Future</span></div>
+    <div class="nav-item" data-page="forecasts" id="nav-forecasts"><span class="nav-icon">📈</span><span class="nav-label">Forecasts &amp; Risk</span></div>
+    <div class="nav-item" data-page="correlation" id="nav-correlation"><span class="nav-icon">🔗</span><span class="nav-label">Correlation Drivers</span></div>
+
+    <div class="sidebar-section-label"><span class="sec-emoji">🤖</span><span class="sec-text">Intelligence</span></div>
+    <div class="nav-item" data-page="ask-ai" id="nav-ask-ai"><span class="nav-icon">💬</span><span class="nav-label">Ask AI — Furnico</span><span class="nav-badge">AI</span></div>
+    <div class="nav-item" data-page="data-profile" id="nav-data-profile"><span class="nav-icon">🔬</span><span class="nav-label">Data Profile</span></div>
+  </nav>
+
+  <div class="sidebar-footer">
+    <div class="sidebar-data-info" id="sidebar-data-info"></div>
+    <button class="sidebar-back-btn" id="btn-change-data">⇄ Change Data Source</button>
+    <button class="sidebar-toggle" id="sidebar-toggle" title="Collapse sidebar">⇄</button>
+  </div>
+</aside>
+
+<!-- ══ MAIN WRAPPER ══ -->
+<div class="main-wrapper" id="main-wrapper" style="display:none">
+
+  <header class="topbar">
+    <div class="topbar-left">
+      <div>
+        <div class="topbar-title" id="topbar-title">Executive Snapshot</div>
+        <div class="topbar-subtitle" id="topbar-subtitle">FY 2025 · All Divisions</div>
+      </div>
+      <!-- Drill-down breadcrumb -->
+      <nav class="drill-breadcrumb" id="drill-breadcrumb" style="display:none" aria-label="Drill-down path">
+        <div class="bc-trail" id="bc-trail"></div>
+      </nav>
+    </div>
+    <div class="topbar-spacer"></div>
+    <div class="data-source-chip"><span>📂</span><span id="source-label">MFC Dataset</span></div>
+    <div class="topbar-status"><div class="status-dot"></div>Data Live</div>
+    <div class="topbar-avatar" title="MFC Admin">M</div>
+  </header>
+
+  <main class="page-content">
+
+    <!-- ═══ PAST: OVERVIEW ═══ -->
+    <div class="page active" id="page-overview">
+      <div class="page-header"><h1>Executive Snapshot</h1><p>Company-wide performance overview. <strong>Click any chart segment to drill down.</strong></p></div>
+      <div class="hero-banner">
+        <h2>📈 FY 2025 Business Snapshot</h2>
+        <p>Real-time analytics powered by operational data across orders, finance, production, HR, and inventory.</p>
+        <div class="hero-meta">
+          <div class="hero-meta-item">📅 Period: <span>Jan – Sep 2025</span></div>
+          <div class="hero-meta-item">🏙️ Location: <span>Melbourne, VIC</span></div>
+          <div class="hero-meta-item">🪵 Materials: <span>3 Types</span></div>
+        </div>
+      </div>
+      <div class="kpi-grid">
+        <div class="kpi-card blue"><span class="kpi-icon">💰</span><div class="kpi-label">Total Revenue</div><div class="kpi-value" id="kpi-revenue">—</div><div class="kpi-change up">↑ FY2025</div></div>
+        <div class="kpi-card green"><span class="kpi-icon">📦</span><div class="kpi-label">Total Orders</div><div class="kpi-value" id="kpi-orders">—</div><div class="kpi-change up">All inquiries</div></div>
+        <div class="kpi-card amber"><span class="kpi-icon">✅</span><div class="kpi-label">Win Rate</div><div class="kpi-value" id="kpi-winrate">—</div><div class="kpi-change">Delivered orders</div></div>
+        <div class="kpi-card purple"><span class="kpi-icon">⏱️</span><div class="kpi-label">On-Time Delivery</div><div class="kpi-value" id="kpi-ontime">—</div><div class="kpi-change up">Of delivered</div></div>
+        <div class="kpi-card blue"><span class="kpi-icon">💵</span><div class="kpi-label">Net Profit</div><div class="kpi-value" id="kpi-profit">—</div><div class="kpi-change" id="kpi-profit-ch">Revenue – Costs</div></div>
+        <div class="kpi-card red"><span class="kpi-icon">👤</span><div class="kpi-label">Active Staff</div><div class="kpi-value" id="kpi-staff">—</div><div class="kpi-change down">Of original team</div></div>
+      </div>
+      <div class="charts-grid cols-2" style="margin-bottom:16px">
+        <div class="chart-card">
+          <div class="chart-card-header"><div><div class="chart-card-title">Revenue vs Costs</div><div class="chart-card-sub">Monthly comparison</div></div><span class="chart-badge blue">Line</span></div>
+          <div class="chart-container h-260"><canvas id="chart-rev-cost"></canvas></div>
+        </div>
+        <div class="chart-card drill-clickable" id="ov-status-card" title="Click to drill down by product">
+          <div class="chart-card-header"><div><div class="chart-card-title">Order Status Breakdown</div><div class="chart-card-sub">Click a segment to drill into that product group</div></div><span class="chart-badge green">Doughnut · Clickable</span></div>
+          <div class="chart-container h-260"><canvas id="chart-order-status"></canvas></div>
+        </div>
+      </div>
+      <div class="charts-grid cols-2">
+        <div class="chart-card drill-clickable" id="ov-product-card" title="Click a bar to drill into that product">
+          <div class="chart-card-header"><div><div class="chart-card-title">Orders by Product Type</div><div class="chart-card-sub">Click a bar to see product-level breakdown</div></div><span class="chart-badge amber">Bar · Clickable</span></div>
+          <div class="chart-container h-260"><canvas id="chart-product-vol"></canvas></div>
+        </div>
+        <div class="chart-card">
+          <div class="chart-card-header"><div><div class="chart-card-title">Cumulative P&amp;L</div><div class="chart-card-sub">Running net position over time</div></div><span class="chart-badge purple">Area</span></div>
+          <div class="chart-container h-260"><canvas id="chart-pnl"></canvas></div>
+        </div>
+      </div>
+      <!-- Drill-down panel (hidden by default, shown on chart click) -->
+      <div class="drill-panel" id="drill-panel-overview" style="display:none">
+        <div class="drill-panel-header">
+          <div class="drill-panel-title" id="drill-panel-title">Product Detail</div>
+          <button class="drill-back-btn" onclick="drillBack('overview')">← Back to Overview</button>
+        </div>
+        <div class="drill-panel-body" id="drill-panel-body"></div>
+      </div>
+    </div>
+
+    <!-- ═══ PAST: ORDERS ═══ -->
+    <div class="page" id="page-orders">
+      <div class="page-header"><h1>Orders &amp; Sales</h1><p>Detailed order pipeline, product analysis, and revenue per product type. <strong>Click any chart to drill down.</strong></p></div>
+      <div class="kpi-grid" style="margin-bottom:16px">
+        <div class="kpi-card blue"><span class="kpi-icon">📦</span><div class="kpi-label">Total Inquiries</div><div class="kpi-value" id="ord-total">—</div></div>
+        <div class="kpi-card green"><span class="kpi-icon">🚚</span><div class="kpi-label">Delivered</div><div class="kpi-value" id="ord-delivered">—</div></div>
+        <div class="kpi-card red"><span class="kpi-icon">❌</span><div class="kpi-label">Lost</div><div class="kpi-value" id="ord-lost">—</div></div>
+        <div class="kpi-card amber"><span class="kpi-icon">💵</span><div class="kpi-label">Avg Quote Price</div><div class="kpi-value" id="ord-avg-price">—</div></div>
+        <div class="kpi-card purple"><span class="kpi-icon">📈</span><div class="kpi-label">Win Rate</div><div class="kpi-value" id="ord-winrate">—</div></div>
+      </div>
+      <div class="charts-grid cols-2" style="margin-bottom:16px">
+        <div class="chart-card drill-clickable"><div class="chart-card-header"><div><div class="chart-card-title">Monthly Order Volume</div><div class="chart-card-sub">Click a bar to see that month's order breakdown</div></div><span class="chart-badge blue">Bar · Clickable</span></div><div class="chart-container h-260"><canvas id="chart-monthly-orders"></canvas></div></div>
+        <div class="chart-card drill-clickable"><div class="chart-card-header"><div><div class="chart-card-title">Avg Quote by Product</div><div class="chart-card-sub">Click a bar to see orders for that product</div></div><span class="chart-badge amber">Bar · Clickable</span></div><div class="chart-container h-260"><canvas id="chart-quote-product"></canvas></div></div>
+      </div>
+      <div class="charts-grid cols-2" style="margin-bottom:16px">
+        <div class="chart-card"><div class="chart-card-header"><div><div class="chart-card-title">Win Rate by Product</div><div class="chart-card-sub">Delivered ÷ Total inquiries</div></div><span class="chart-badge green">Bar</span></div><div class="chart-container h-260"><canvas id="chart-winrate-product"></canvas></div></div>
+        <div class="chart-card"><div class="chart-card-header"><div><div class="chart-card-title">Material Usage by Orders</div><div class="chart-card-sub">Most common material type</div></div><span class="chart-badge purple">Doughnut</span></div><div class="chart-container h-260"><canvas id="chart-material-orders"></canvas></div></div>
+      </div>
+      <!-- Orders drill-down panel -->
+      <div class="drill-panel" id="drill-panel-orders" style="display:none">
+        <div class="drill-panel-header">
+          <div class="drill-panel-title" id="drill-orders-title">Detail View</div>
+          <button class="drill-back-btn" onclick="drillBack('orders')">← Back</button>
+        </div>
+        <div class="drill-panel-body" id="drill-orders-body"></div>
+      </div>
+      <div class="table-card" id="orders-table-card">
+        <div class="table-toolbar">
+          <div class="table-title">📋 Orders Register</div>
+          <input class="search-input" id="orders-search" type="text" placeholder="Search orders…" />
+          <select class="filter-select" id="orders-status-filter"><option value="">All Status</option><option value="DELIVERED">Delivered</option><option value="LOST">Lost</option></select>
+          <select class="filter-select" id="orders-product-filter"><option value="">All Products</option></select>
+        </div>
+        <div class="data-table-wrap">
+          <table class="data-table">
+            <thead><tr><th>#</th><th>Product</th><th>Status</th><th>Material</th><th>Quote Price</th><th>Complexity</th><th>Delivery</th><th>Created</th><th></th></tr></thead>
+            <tbody id="orders-table-body"></tbody>
+          </table>
+        </div>
+        <div class="table-pagination"><div id="orders-page-info">—</div><div class="pagination-btns" id="orders-pagination"></div></div>
+      </div>
+    </div>
+
+    <!-- ═══ PAST: FINANCE ═══ -->
+    <div class="page" id="page-finance">
+      <div class="page-header"><h1>Financial P&amp;L</h1><p>Revenue, cost breakdown, and profitability analysis by month.</p></div>
+      <div class="kpi-grid" style="margin-bottom:16px">
+        <div class="kpi-card blue"><span class="kpi-icon">💰</span><div class="kpi-label">Total Revenue</div><div class="kpi-value" id="fin-revenue">—</div></div>
+        <div class="kpi-card red"><span class="kpi-icon">📉</span><div class="kpi-label">Total Costs</div><div class="kpi-value" id="fin-costs">—</div></div>
+        <div class="kpi-card green"><span class="kpi-icon">📈</span><div class="kpi-label">Net Profit</div><div class="kpi-value" id="fin-profit">—</div></div>
+        <div class="kpi-card amber"><span class="kpi-icon">📊</span><div class="kpi-label">Profit Margin</div><div class="kpi-value" id="fin-margin">—</div></div>
+        <div class="kpi-card purple"><span class="kpi-icon">🔧</span><div class="kpi-label">Avg Daily Cost</div><div class="kpi-value" id="fin-daily-cost">—</div></div>
+      </div>
+      <div class="charts-grid cols-2" style="margin-bottom:16px">
+        <div class="chart-card"><div class="chart-card-header"><div><div class="chart-card-title">Monthly Revenue vs Cost</div><div class="chart-card-sub">Side-by-side comparison</div></div><span class="chart-badge blue">Grouped Bar</span></div><div class="chart-container h-300"><canvas id="chart-fin-monthly"></canvas></div></div>
+        <div class="chart-card"><div class="chart-card-header"><div><div class="chart-card-title">Cost Breakdown</div><div class="chart-card-sub">Wages, Overheads, Materials</div></div><span class="chart-badge amber">Pie</span></div><div class="chart-container h-300"><canvas id="chart-cost-breakdown"></canvas></div></div>
+      </div>
+      <div class="charts-grid cols-2">
+        <div class="chart-card"><div class="chart-card-header"><div><div class="chart-card-title">Monthly Net Profit / Loss</div><div class="chart-card-sub">Per-month P&amp;L bars</div></div><span class="chart-badge green">Bar</span></div><div class="chart-container h-280"><canvas id="chart-monthly-profit"></canvas></div></div>
+        <div class="chart-card"><div class="chart-card-header"><div><div class="chart-card-title">Cumulative Cash Position</div><div class="chart-card-sub">Running total over time</div></div><span class="chart-badge purple">Area</span></div><div class="chart-container h-280"><canvas id="chart-cumulative"></canvas></div></div>
+      </div>
+    </div>
+
+    <!-- ═══ PAST: HR ═══ -->
+    <div class="page" id="page-hr">
+      <div class="page-header"><h1>Human Resources</h1><p>Staff roster, skill distribution, leave events, and workforce analytics.</p></div>
+      <div class="kpi-grid" style="margin-bottom:16px">
+        <div class="kpi-card green"><span class="kpi-icon">✅</span><div class="kpi-label">Active Staff</div><div class="kpi-value" id="hr-active">—</div></div>
+        <div class="kpi-card red"><span class="kpi-icon">👋</span><div class="kpi-label">Resigned</div><div class="kpi-value" id="hr-resigned">—</div></div>
+        <div class="kpi-card blue"><span class="kpi-icon">✏️</span><div class="kpi-label">Designers</div><div class="kpi-value" id="hr-designers">—</div></div>
+        <div class="kpi-card amber"><span class="kpi-icon">🔨</span><div class="kpi-label">Makers</div><div class="kpi-value" id="hr-makers">—</div></div>
+        <div class="kpi-card purple"><span class="kpi-icon">📅</span><div class="kpi-label">Leave Events</div><div class="kpi-value" id="hr-leave">—</div></div>
+      </div>
+      <div class="charts-grid cols-2" style="margin-bottom:16px">
+        <div class="chart-card"><div class="chart-card-header"><div><div class="chart-card-title">Workforce Status</div><div class="chart-card-sub">Active vs Resigned</div></div><span class="chart-badge green">Doughnut</span></div><div class="chart-container h-260"><canvas id="chart-hr-status"></canvas></div></div>
+        <div class="chart-card"><div class="chart-card-header"><div><div class="chart-card-title">Role &amp; Skill Distribution</div><div class="chart-card-sub">Designers &amp; Makers by skill level</div></div><span class="chart-badge blue">Bar</span></div><div class="chart-container h-260"><canvas id="chart-hr-role-skill"></canvas></div></div>
+      </div>
+      <div class="charts-grid cols-2" style="margin-bottom:16px">
+        <div class="chart-card"><div class="chart-card-header"><div><div class="chart-card-title">Weekly Wage Spend</div><div class="chart-card-sub">Active staff total weekly cost</div></div><span class="chart-badge amber">Stat</span></div><div id="hr-wage-stats" style="padding:10px 0"></div></div>
+        <div class="chart-card"><div class="chart-card-header"><div><div class="chart-card-title">Leave Events Timeline</div><div class="chart-card-sub">Monthly leave starts</div></div><span class="chart-badge purple">Bar</span></div><div class="chart-container h-220"><canvas id="chart-leave-timeline"></canvas></div></div>
+      </div>
+      <div class="chart-card"><div class="chart-card-header"><div class="chart-card-title">👥 Staff Roster</div><span class="chart-badge green">Full List</span></div><div class="hr-grid" id="hr-roster-grid"></div></div>
+    </div>
+
+    <!-- ═══ PAST: INVENTORY ═══ -->
+    <div class="page" id="page-inventory">
+      <div class="page-header"><h1>Inventory History</h1><p>Material stock levels, consumption trends, and reorder patterns.</p></div>
+      <div class="kpi-grid" style="margin-bottom:16px">
+        <div class="kpi-card blue"><span class="kpi-icon">🪵</span><div class="kpi-label">Materials Tracked</div><div class="kpi-value" id="inv-materials">—</div></div>
+        <div class="kpi-card green"><span class="kpi-icon">📥</span><div class="kpi-label">Total Reorders</div><div class="kpi-value" id="inv-reorders">—</div></div>
+        <div class="kpi-card amber"><span class="kpi-icon">📤</span><div class="kpi-label">Total Consumed</div><div class="kpi-value" id="inv-consumed">—</div></div>
+        <div class="kpi-card purple"><span class="kpi-icon">📋</span><div class="kpi-label">Log Entries</div><div class="kpi-value" id="inv-entries">—</div></div>
+      </div>
+      <div class="chart-card" style="margin-bottom:16px"><div class="chart-card-header"><div class="chart-card-title">Current Stock Levels</div><span class="chart-badge blue">Live</span></div><div class="inventory-list" id="inventory-levels"></div></div>
+      <div class="charts-grid cols-2" style="margin-bottom:16px">
+        <div class="chart-card"><div class="chart-card-header"><div><div class="chart-card-title">Consumption Over Time</div><div class="chart-card-sub">Monthly material usage</div></div><span class="chart-badge amber">Line</span></div><div class="chart-container h-280"><canvas id="chart-inv-consumption"></canvas></div></div>
+        <div class="chart-card"><div class="chart-card-header"><div><div class="chart-card-title">Reorder Frequency</div><div class="chart-card-sub">How often each material is restocked</div></div><span class="chart-badge green">Bar</span></div><div class="chart-container h-280"><canvas id="chart-inv-reorder"></canvas></div></div>
+      </div>
+      <div class="chart-card"><div class="chart-card-header"><div><div class="chart-card-title">Stock Level History</div><div class="chart-card-sub">Running stock by material</div></div><span class="chart-badge purple">Area</span></div><div class="chart-container h-300"><canvas id="chart-inv-history"></canvas></div></div>
+    </div>
+
+    <!-- ═══ PRESENT: OPERATIONS BOARD ═══ -->
+    <div class="page" id="page-operations">
+      <div class="page-header">
+        <h1>Operations Board</h1>
+        <p>Live view of recent orders by production stage. <strong>Click any stage card to drill into products and individual orders.</strong></p>
+      </div>
+      <!-- Stage KPI cards -->
+      <div class="kpi-grid" id="ops-kpi-row" style="margin-bottom:16px"></div>
+      <!-- Ops drill-down view -->
+      <div id="ops-drill-container">
+        <!-- Level 0: Stage cards -->
+        <div id="ops-level-0">
+          <div class="ops-stage-grid" id="ops-stage-grid"></div>
+        </div>
+        <!-- Level 1: Products within a stage -->
+        <div id="ops-level-1" style="display:none">
+          <div class="drill-panel">
+            <div class="drill-panel-header">
+              <div class="drill-panel-title" id="ops-l1-title"></div>
+              <button class="drill-back-btn" onclick="opsGoBack(0)">← Back to Stages</button>
+            </div>
+            <div id="ops-l1-body"></div>
+          </div>
+        </div>
+        <!-- Level 2: Orders within product+stage -->
+        <div id="ops-level-2" style="display:none">
+          <div class="drill-panel">
+            <div class="drill-panel-header">
+              <div class="drill-panel-title" id="ops-l2-title"></div>
+              <button class="drill-back-btn" onclick="opsGoBack(1)">← Back to Products</button>
+            </div>
+            <div id="ops-l2-body"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ FUTURE: FORECASTS & RISK ═══ -->
+    <div class="page" id="page-forecasts">
+      <div class="page-header"><h1>Forecasts &amp; Risk Indicators</h1><p>Forward-looking projections and operational risk signals based on historical trends.</p></div>
+      <div class="forecast-disclaimer">⚠️ <strong>Data Coverage Notice:</strong> This dataset spans ~9 months (Jan–Sep 2025). Forecasts are directional estimates only — reliable projections require 18–24 months minimum. Treat with caution.</div>
+      <div class="kpi-grid" id="forecast-kpi-row" style="margin-bottom:16px"></div>
+      <div class="charts-grid cols-2" style="margin-bottom:16px">
+        <div class="chart-card"><div class="chart-card-header"><div><div class="chart-card-title">Revenue Trend &amp; Projection</div><div class="chart-card-sub">Historical + 3-month linear extrapolation</div></div><span class="chart-badge blue">Line + Forecast</span></div><div class="chart-container h-300"><canvas id="chart-revenue-forecast"></canvas></div></div>
+        <div class="chart-card"><div class="chart-card-header"><div><div class="chart-card-title">Win Rate Trend</div><div class="chart-card-sub">Monthly win rate moving average</div></div><span class="chart-badge green">Line</span></div><div class="chart-container h-300"><canvas id="chart-winrate-trend"></canvas></div></div>
+      </div>
+      <div class="chart-card">
+        <div class="chart-card-header"><div class="chart-card-title">🚨 Risk Indicators</div><span class="chart-badge red">Live</span></div>
+        <div id="risk-indicators-grid"></div>
+      </div>
+    </div>
+
+    <!-- ═══ FUTURE: CORRELATION DRIVERS ═══ -->
+    <div class="page" id="page-correlation">
+      <div class="page-header">
+        <h1>Correlation Drivers</h1>
+        <p>Ranked analysis of what actually drives your win rate and profitability. <strong>Click any driver row to see its scatter plot.</strong></p>
+      </div>
+      <div class="correlation-disclaimer">ℹ️ Correlation ≠ causation. Coefficients below show statistical association only. Treat as hypothesis generators, not proof.</div>
+      <div class="charts-grid cols-2">
+        <div class="chart-card">
+          <div class="chart-card-header"><div class="chart-card-title">📊 Driver Rankings — Win Rate</div><span class="chart-badge amber">Ranked</span></div>
+          <div id="correlation-table-winrate"></div>
+        </div>
+        <div class="chart-card">
+          <div class="chart-card-header"><div class="chart-card-title">📊 Driver Rankings — Revenue</div><span class="chart-badge blue">Ranked</span></div>
+          <div id="correlation-table-revenue"></div>
+        </div>
+      </div>
+      <div class="chart-card" style="margin-top:16px" id="scatter-panel" style="display:none">
+        <div class="chart-card-header">
+          <div><div class="chart-card-title" id="scatter-title">Select a driver above to see scatter plot</div><div class="chart-card-sub" id="scatter-sub"></div></div>
+          <span class="chart-badge purple">Scatter</span>
+        </div>
+        <div class="chart-container h-320"><canvas id="chart-scatter"></canvas></div>
+      </div>
+    </div>
+
+    <!-- ═══ INTELLIGENCE: ASK AI ═══ -->
+    <div class="page" id="page-ask-ai">
+      <div class="page-header"><h1>Ask AI — Furnico</h1><p>Your MFC data intelligence assistant. Ask anything about orders, finance, production, HR, or inventory.</p></div>
+      <div class="ai-page-layout">
+
+        <!-- Left: Chat -->
+        <div class="ai-chat-main">
+          <div class="ai-chat-messages" id="ai-page-messages">
+            <!-- Welcome message injected by JS -->
+          </div>
+          <div class="ai-tips-bar" id="ai-tips-bar">
+            <button class="tips-toggle" onclick="toggleTips()">💡 Tips for asking ▾</button>
+            <div class="tips-content" id="tips-content" style="display:none">
+              <strong>For better answers, mention:</strong>
+              <span class="tip-chip">📅 Time period</span>
+              <span class="tip-chip">📦 Product type</span>
+              <span class="tip-chip">📊 The metric you care about</span>
+              <span class="tip-chip">🔄 What you want to compare</span>
+              <div class="tips-example">Example: <em>"What was our win rate for Media Console in Q1 compared to Q2?"</em></div>
+            </div>
+          </div>
+          <div class="ai-input-row">
+            <textarea class="ai-input" id="ai-page-input" rows="1" placeholder="Ask Furnico about MFC's performance…"></textarea>
+            <button class="ai-send-btn" id="ai-page-send">➤</button>
+          </div>
+        </div>
+
+        <!-- Right: Suggested questions + data sources -->
+        <aside class="ai-sidebar-panel">
+          <div class="ai-panel-section">
+            <div class="ai-panel-title">💬 Suggested Questions</div>
+            <div class="ai-q-category">📜 Past Performance</div>
+            <div class="ai-q-chips">
+              <div class="ai-q-chip" onclick="askSuggestion(this)">What's our overall win rate?</div>
+              <div class="ai-q-chip" onclick="askSuggestion(this)">Which product has the best margin?</div>
+              <div class="ai-q-chip" onclick="askSuggestion(this)">Where are we losing orders?</div>
+              <div class="ai-q-chip" onclick="askSuggestion(this)">Show me the financial summary</div>
+              <div class="ai-q-chip" onclick="askSuggestion(this)">How did HR turnover affect delivery?</div>
+            </div>
+            <div class="ai-q-category">⚡ Current Operations</div>
+            <div class="ai-q-chips">
+              <div class="ai-q-chip" onclick="askSuggestion(this)">What's the biggest production bottleneck?</div>
+              <div class="ai-q-chip" onclick="askSuggestion(this)">How are stock levels looking?</div>
+              <div class="ai-q-chip" onclick="askSuggestion(this)">Which orders are late?</div>
+            </div>
+            <div class="ai-q-category">🔮 Future &amp; Risk</div>
+            <div class="ai-q-chips">
+              <div class="ai-q-chip" onclick="askSuggestion(this)">What's our revenue trend?</div>
+              <div class="ai-q-chip" onclick="askSuggestion(this)">What drives our win rate?</div>
+              <div class="ai-q-chip" onclick="askSuggestion(this)">What's our biggest delivery risk?</div>
+            </div>
+          </div>
+
+          <div class="ai-panel-section">
+            <div class="ai-panel-title">📂 Data Sources</div>
+            <div class="ai-source-list" id="ai-source-list"></div>
+          </div>
+        </aside>
+      </div>
+    </div>
+
+    <!-- ═══ INTELLIGENCE: DATA PROFILE ═══ -->
+    <div class="page" id="page-data-profile">
+      <div class="page-header"><h1>Data Profile &amp; Quality</h1><p>Automatically generated schema inspection and data quality report.</p></div>
+      <div class="kpi-grid" id="dp-kpi-row" style="margin-bottom:16px"></div>
+      <div id="dp-tables-wrap"></div>
+    </div>
+
+  </main>
+</div><!-- /main-wrapper -->
+
+<!-- ══ ORDER DETAIL MODAL ══ -->
+<div class="modal-overlay" id="order-modal" style="display:none" onclick="closeOrderModal(event)">
+  <div class="modal-card" id="modal-card">
+    <div class="modal-header">
+      <div class="modal-title">Order Detail</div>
+      <button class="modal-close" onclick="closeOrderModal()">✕</button>
+    </div>
+    <div class="modal-body" id="modal-body"></div>
+  </div>
+</div>
+
+<!-- ══ FURNICO FAB (shortcut on non-AI pages) ══ -->
+<div class="furnico-fab" id="furnico-fab" style="display:none">
+  <div class="furnico-fab-inner" id="furnico-fab-btn" title="Quick chat with Furnico">
+    <span class="furnico-fab-icon">🤖</span>
+    <div class="furnico-fab-ring"></div>
+  </div>
+  <div class="furnico-label">Furnico</div>
+</div>
+
+<!-- ══ FURNICO MINI PANEL (FAB shortcut chat) ══ -->
+<div class="furnico-chat-panel" id="furnico-chat-panel">
+  <div class="fcp-header">
+    <div class="furnico-avatar-sm">🤖</div>
+    <div><div class="fcp-title">Furnico AI</div><div class="fcp-sub">Quick answers · Full chat in Ask AI tab</div></div>
+    <div class="online-badge" style="margin-left:auto"><div class="status-dot"></div>Online</div>
+    <button class="fcp-close" id="furnico-close">✕</button>
+  </div>
+  <div class="fcp-messages" id="fcp-messages"></div>
+  <div class="fcp-suggestions" id="fcp-suggestions">
+    <div class="suggestion-chip" onclick="sendFurnicoSuggestion(this)">Win rate?</div>
+    <div class="suggestion-chip" onclick="sendFurnicoSuggestion(this)">Best product?</div>
+    <div class="suggestion-chip" onclick="sendFurnicoSuggestion(this)">Finance summary</div>
+    <div class="suggestion-chip" onclick="sendFurnicoSuggestion(this)">Bottleneck?</div>
+  </div>
+  <div class="fcp-input-row">
+    <textarea class="fcp-input" id="fcp-input" rows="1" placeholder="Ask Furnico…"></textarea>
+    <button class="fcp-send" id="fcp-send">➤</button>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
