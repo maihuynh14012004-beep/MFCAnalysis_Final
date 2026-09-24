@@ -795,7 +795,7 @@ function renderFinance(){
   const cLabs=['Wages','Overheads','Materials','Other'].filter((_,i)=>[m.wagesTotal,m.overheadsTotal,m.materialCostTotal,m.otherCosts][i]>0);
   createChart('chart-cost-breakdown',{type:'pie',data:{labels:cLabs,datasets:[{data:cVals,backgroundColor:[hexAlpha(COLORS.amber,0.8),hexAlpha(COLORS.purple,0.8),hexAlpha(COLORS.blue,0.8),hexAlpha(COLORS.green,0.8)],borderColor:'#060b18',borderWidth:3,hoverOffset:8}]},options:donutOpts()});
   const netM=months.map(mo=>m.monthlyFinance[mo].rev-m.monthlyFinance[mo].cost);
-  createChart('chart-monthly-profit',{type:'bar',data:{labels:mLabels,datasets:[{label:'Net Profit/Loss',data:netM,backgroundColor:netM.map(v=>v>=0?hexAlpha(COLORS.green,0.7):hexAlpha(COLORS.red,0.7)),borderRadius:4,borderSkipped:false}]},options:barOpts('$')});
+  createChart('chart-monthly-profit',{type:'bar',data:{labels:mLabels,datasets:[{label:'Revenue minus costs',data:netM,backgroundColor:netM.map(v=>v>=0?hexAlpha(COLORS.green,0.7):hexAlpha(COLORS.red,0.7)),borderRadius:4,borderSkipped:false}]},options:barOpts('$')});
   let cum=0;
   createChart('chart-cumulative',{type:'line',data:{labels:mLabels,datasets:[{label:'Cumulative Position',data:months.map(mo=>{cum+=m.monthlyFinance[mo].rev-m.monthlyFinance[mo].cost;return cum;}),borderColor:COLORS.cyan,backgroundColor:ctx=>chartGradient(ctx.chart.ctx,COLORS.cyan,0.3,0.01),borderWidth:2,tension:0.4,fill:true,pointRadius:3}]},options:lineOpts('$')});
 }
@@ -1492,7 +1492,7 @@ Operational Data & Telemetry:
 - Financials:
   * Total Revenue: $${Math.round(m.totalRev||0).toLocaleString('en-AU')}
   * Operating Costs: $${Math.round(m.totalCost||0).toLocaleString('en-AU')}
-  * Net Profit: $${Math.round(m.netProfit||0).toLocaleString('en-AU')} (Net Margin: ${(m.profitMargin || 0).toFixed(1)}%)
+  * Revenue minus costs: $${Math.round(m.netProfit||0).toLocaleString('en-AU')} (Net Margin: ${(m.profitMargin || 0).toFixed(1)}%)
   * Cost Drivers: Wages $${Math.round(m.wagesTotal||0).toLocaleString('en-AU')}, Overheads $${Math.round(m.overheadsTotal||0).toLocaleString('en-AU')}, Materials $${Math.round(m.materialCostTotal||0).toLocaleString('en-AU')}
 - Team Capacity & HR:
   * Active Team: ${m.activeStaff || 12} of ${m.totalStaff || 24} total (${m.resignedStaff || 12} resigned / ${((m.resignedStaff||12)/(m.totalStaff||24)*100).toFixed(1)}% turnover)
@@ -1936,7 +1936,7 @@ function buildStructuredResponse(query){
   else if(intent==='delivery'){
     greeting=`Here is the analysis of on-time delivery performance:`;
     evidence=`MFC achieved an on-time delivery rate of <strong>${fmtPct(m.onTimePct)}</strong> (${m.onTimeCount} delivered on time, ${m.lateCount} delivered late out of ${m.delivered} total delivered orders). Late delivery penalties totaled <strong>$31,117.79</strong>.`;
-    interpretation=`Delivery timeliness is strongly associated with concurrent workload at the time orders are accepted. Orders accepted when open orders reached 14 or more experienced sharp increases in delay rates (82.7% late rate in the 16+ band). Staff resignations (p = 0.77) and material inventory levels (p = 0.989) show no significant association found with delivery delays.`;
+    interpretation=`Delivery timeliness is strongly associated with concurrent workload at the time orders are accepted. Orders accepted when open orders reached 14 or more experienced sharp increases in delay rates (82.7% late rate in the 16+ band). Staff resignations (p = 0.77) and material inventory levels (p = 0.989) show no significant association with delivery delays.`;
     action=`Make the promised delivery date reflect current open orders when quoting.`;
     limitation=`Delivery timeliness is assessed against the scheduled due date established at order creation.`;
     closing=`Refer to the Commitment Risk page to view the late delivery rate across each workload band.`;
@@ -2001,8 +2001,8 @@ function buildStructuredResponse(query){
   }
   else if(intent==='correlation'){
     greeting=`Here is the summary of statistical correlation and driver analyses:`;
-    evidence=`Quote price vs acceptance: r = -0.04. Complexity vs acceptance: r = -0.05. Workload at order acceptance vs late delivery: r = +0.68. Resignations within 21 days vs late delivery: Fisher p = 0.77. Material reorders vs late delivery: p = 0.989. Promised lead time vs pre-WIP: rho = -0.002 (p = 0.96); vs complexity: rho = +0.972.`;
-    interpretation=`Empirical testing shows order acceptance is flat at 40.9% across quote prices and design complexity. Delivery delays are strongly associated with concurrent workload at order acceptance (pre-WIP queue buffer), while staffing turnover and timber reorders show no significant association found.`;
+    evidence=`Quote price vs acceptance: chi-square p = 0.967. Complexity vs acceptance: chi-square p = 0.883. Pre-existing workload vs late delivery: Spearman rho = 0.560 (p < 0.001). Resignations within 21 days vs late delivery: Fisher p = 0.77. Material type vs late delivery: chi-square p = 0.989. Promised lead time vs pre-WIP: rho = -0.002 (p = 0.96); vs complexity: rho = +0.972.`;
+    interpretation=`Empirical testing shows order acceptance is flat at 40.9% across quote prices and design complexity. Delivery delays are strongly associated with concurrent workload at order acceptance (pre-WIP queue buffer), while staffing turnover and timber reorders show no significant association.`;
     action=`Make the promised delivery date reflect current open orders when quoting.`;
     limitation=`Correlations identify statistical associations rather than direct individual-level causation.`;
     closing=`Refer to the Correlation Drivers page for driver rankings.`;
@@ -2011,7 +2011,7 @@ function buildStructuredResponse(query){
     // Default summary
     greeting=`Here is the operational performance snapshot for Modern Furniture Co.:`;
     evidence=`Acceptance rate: <strong>${fmtPct(m.acceptanceRate)}</strong> (${m.acceptedOrdersCount}/${m.totalOrders}) · Revenue: <strong>${fmtK(m.totalRev)}</strong> · Net profit: <strong>${fmtK(m.netProfit)}</strong> (${fmtPct(m.profitMargin)} margin) · On-time delivery: <strong>${fmtPct(m.onTimePct)}</strong> (${m.onTimeCount} on time / ${m.lateCount} late) · Active staff: <strong>${m.activeStaff}/${m.totalStaff}</strong>.`;
-    interpretation=`MFC achieved 86.3% on-time delivery across 460 delivered orders. Delays are concentrated in high-workload periods (pre-WIP >= 14, where late rate reaches 82.7% for 16+ open orders). Staff resignations (p = 0.77) and material inventory (p = 0.989) show no significant association found with delivery delays.`;
+    interpretation=`MFC achieved 86.3% on-time delivery across 460 delivered orders. Delays are concentrated in high-workload periods (pre-WIP >= 14, where late rate reaches 82.7% for 16+ open orders). Staff resignations (p = 0.77) and material inventory (p = 0.989) show no significant association with delivery delays.`;
     action=`Make the promised delivery date reflect current open orders when quoting.`;
     limitation=`Summary aggregates data across the 24-month observation window; individual modules provide granular detail.`;
     closing=`Select any specific operational area for deeper investigation.`;
