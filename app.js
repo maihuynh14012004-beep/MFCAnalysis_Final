@@ -1485,8 +1485,8 @@ Tone and Persona:
 - Never refer to joinery as a measured bottleneck.
 - When discussing delivery risk or due date commitments, provide reference-class rates based on workload bands, never individual order completion probabilities.
 - Acknowledge explicit ambiguity when discussing product profitability (total dollar margin vs margin percentage).
-- Never use the words: causes, caused, drives, confirms, proves. Use "is associated with", "shows", "indicates" instead.
-- All figures cover the full dataset period, 2025-01-02 to 2027-01-01. If the manager asks about a specific period (a quarter, a month, a year), the FIRST sentence must say the figures cover the full period and period filtering is not available in this proof of concept.
+- When explaining why something happens, never use: causes, caused, drives, confirms, proves. Use "is associated with", "shows", "indicates" instead. State plain facts and totals directly (for example "Late deliveries cost $31,117.79 in penalties"), without "associated with".
+- Do not mention the data period or date range unless the question names a specific period.
 - For resignation questions, say "orders accepted within 21 days after a resignation".
 - If the data above does not contain the answer, say so plainly and suggest a related question you can answer. Never invent figures, forecasts or customer details.
 
@@ -1705,13 +1705,24 @@ async function sendAIPageMsg(){
   addAIPageTyping();
 
   if (GEMINI_API_KEY) {
+    const periodCheck = checkPeriodQuery(text);
+    if (periodCheck.isOutOfRange) {
+      removeAIPageTyping();
+      const id = 'ans-' + (++answerCount);
+      addAIPageMsg('ai', id, `<p style="margin:0;font-size:13px;line-height:1.5;">The dataset covers 2 January 2025 to 1 January 2027, so there is no data for that period.</p>`, 'out-of-scope');
+      return;
+    }
+
     try {
       const geminiRes = await callGeminiAPI(text);
       removeAIPageTyping();
       const id='ans-'+(++answerCount);
       const modelName = (geminiRes.model || 'Gemini').toUpperCase();
       const tag = `<div style="display:flex;align-items:center;gap:6px;font-size:11px;color:#10b981;font-weight:700;margin-bottom:8px;"><span style="width:6px;height:6px;border-radius:50%;background:#10b981;display:inline-block;"></span> ✨ ${modelName} LIVE GENERATIVE REASONING</div>`;
-      addAIPageMsg('ai', id, tag + geminiRes.text, 'gemini-active');
+      const periodNotice = periodCheck.hasPeriodMention
+        ? `<div style="padding:8px 12px;background:rgba(59,130,246,0.12);border:1px solid rgba(59,130,246,0.25);border-radius:6px;margin-bottom:10px;font-size:12px;color:var(--text-secondary);line-height:1.5;">Note: these figures cover the full dataset period, 2 January 2025 to 1 January 2027. Filtering by a specific period is not available in this proof of concept.</div>`
+        : '';
+      addAIPageMsg('ai', id, tag + periodNotice + geminiRes.text, 'gemini-active');
       return;
     } catch (err) {
       console.warn('Gemini API call failed, falling back to local engine:', err);
@@ -1836,6 +1847,24 @@ const PRODUCT_LATE_RATES = {
   'Media Console': '22.2%'
 };
 
+function checkPeriodQuery(query){
+  const yearMatches = query.match(/\b(19\d\d|20\d\d)\b/g);
+  let isOutOfRange = false;
+  if (yearMatches) {
+    const years = yearMatches.map(Number);
+    if (years.some(y => y < 2025 || y >= 2027)) {
+      isOutOfRange = true;
+    }
+  }
+
+  const monthRegex = /\b(january|february|march|april|june|july|august|september|october|november|december|jan|feb|mar|apr|jun|jul|aug|sep|sept|oct|nov|dec)\b|\bmay\b(?!\s+(i|we|you|they|he|she|it|be|have|not))\b/i;
+  const quarterRegex = /\b(q[1-4]|quarter)\b/i;
+  const relativePeriodRegex = /\b(last\s+quarter|last\s+month|this\s+year|last\s+year)\b/i;
+  const hasPeriodMention = Boolean((yearMatches && yearMatches.length > 0) || quarterRegex.test(query) || monthRegex.test(query) || relativePeriodRegex.test(query));
+
+  return { isOutOfRange, hasPeriodMention };
+}
+
 function getNamedProducts(query){
   const q = query.toLowerCase();
   const found = [];
@@ -1904,10 +1933,19 @@ function classifyIntent(query){
     return 'date_advice';
   }
 
-  // 7. Cost of lateness & Delivery intent (Item 3)
+  // 7. Cost of lateness & Delivery intent (Item 3 & Part B Item 5)
   // "penalty", "cost of late", "late deliveries cost", "average delay", "how late"
+  // Also query containing why/cause/drive together with late/delay/delivery
+  if(/(why|cause|causes|drive|drives)/i.test(q) && /(late|lateness|delay|delays|deliver|delivery|deliveries)/i.test(q)){
+    return 'delivery';
+  }
   if(/(penalty|cost of late|late deliveries cost|average delay|how late|orders are late|late orders|orders? (are |were )?late)/i.test(q)){
     return 'delivery';
+  }
+
+  // Stage questions / longest check (Part B Item 6)
+  if(/\b(longest|which\s+stage|longest\s+stage)\b/i.test(q)){
+    return 'production';
   }
 
   // 8. Open orders & Commitment band lookup (Item 1)
@@ -1964,24 +2002,17 @@ function getAssumptionWarning(intent){
 function buildStructuredResponse(query){
   const m=METRICS;
 
-  // 1. Period guard: out-of-bounds year check (< 2025 or >= 2027)
-  const yearMatches = query.match(/\b(19\d\d|20\d\d)\b/g);
-  if (yearMatches) {
-    const years = yearMatches.map(Number);
-    if (years.some(y => y < 2025 || y >= 2027)) {
-      return {
-        type: 'out-of-scope',
-        content: `<p style="margin:0;font-size:13px;line-height:1.5;">The dataset ends on 1 January 2027, so there is no data for that period.</p>`,
-        miniChart: null
-      };
-    }
+  // 1. Period guard: out-of-bounds year check (< 2025 or >= 2027) (Part B Item 4)
+  const periodCheck = checkPeriodQuery(query);
+  if (periodCheck.isOutOfRange) {
+    return {
+      type: 'out-of-scope',
+      content: `<p style="margin:0;font-size:13px;line-height:1.5;">The dataset covers 2 January 2025 to 1 January 2027, so there is no data for that period.</p>`,
+      miniChart: null
+    };
   }
 
-  // Check if query mentions a period within dataset
-  const monthRegex = /\b(january|february|march|april|june|july|august|september|october|november|december|jan|feb|mar|apr|jun|jul|aug|sep|sept|oct|nov|dec)\b|\bmay\b(?!\s+(i|we|you|they|he|she|it|be|have|not))\b/i;
-  const quarterRegex = /\b(q[1-4]|quarter)\b/i;
-  const relativePeriodRegex = /\b(last\s+quarter|last\s+month|this\s+year|last\s+year)\b/i;
-  const hasPeriodMention = (yearMatches && yearMatches.length > 0) || quarterRegex.test(query) || monthRegex.test(query) || relativePeriodRegex.test(query);
+  const hasPeriodMention = periodCheck.hasPeriodMention;
 
   const intent=classifyIntent(query);
 
@@ -2199,8 +2230,11 @@ function buildStructuredResponse(query){
     limitation=`Ledger records direct operational expenses; indirect opportunity costs from lead times are not represented.`;
   }
   else if(intent==='delivery'){
-    // Item 3: Cost of Lateness & delivery evidence
-    greeting=`MFC achieved an on-time delivery rate of ${fmtPct(m.onTimePct)} (${m.onTimeCount} on time, ${m.lateCount} late out of ${m.delivered} delivered), with late penalties totalling $31,117.79 and late orders averaging 2.8 days late.`;
+    // Item 3: Cost of Lateness & delivery evidence & Part B Item 5: Delivery "why"
+    const isWhyDelivery = /\b(why|cause|causes|drive|drives)\b/i.test(query);
+    greeting = isWhyDelivery
+      ? `Late deliveries are strongly associated with how many orders are already open when a new one is accepted: 0.0% late below 10 open orders vs 82.7% at 16 or more, while promised dates stay flat at about 18 days.`
+      : `MFC achieved an on-time delivery rate of ${fmtPct(m.onTimePct)} (${m.onTimeCount} on time, ${m.lateCount} late out of ${m.delivered} delivered), with late penalties totalling $31,117.79 and late orders averaging 2.8 days late.`;
     evidence=`MFC achieved an on-time delivery rate of <strong>${fmtPct(m.onTimePct)}</strong> (${m.onTimeCount} delivered on time, ${m.lateCount} delivered late out of ${m.delivered} total delivered orders). Late penalties totalled $31,117.79 (10% of the final payment on each late order). Late orders averaged 2.8 days late (maximum 7).`;
     interpretation=`Delivery timeliness is strongly associated with concurrent workload at the time orders are accepted. Orders accepted when open orders reached 14 or more experienced sharp increases in delay rates (82.7% late rate in the 16+ band). Promised lead times stay flat at about 18 days across all workload bands, while actual lead times rise from 12.0 to 20.4 days, so the promise falls short once open orders reach 14 to 15. Staff resignations (p = 0.77) and material inventory levels (p = 0.989) show no significant association with delivery delays.`;
     action=`Make the promised delivery date reflect current open orders when quoting.`;
@@ -2212,7 +2246,27 @@ function buildStructuredResponse(query){
     const joineryBanner = intent === 'premise_joinery_bottleneck'
       ? `<div style="padding:10px 14px;background:rgba(239,68,68,0.12);border:1px solid rgba(239,68,68,0.3);border-radius:8px;margin-bottom:12px;font-size:13px;line-height:1.5;"><strong>Premise Check: Not Supported</strong><br>Joinery hours are planned ratios (40% of each order), not measured queue times, so the data does not show joinery as a bottleneck. The delivery delay builds in the wait queue before production starts.</div>`
       : '';
-    greeting=`${joineryBanner}Average planned production time is ${(m.avgDesignH + m.avgMillingH + m.avgJoinH + m.avgFinH).toFixed(1)} hours per order, while post-design wait before production rises from 0.17 to 8.62 days across workload bands.`;
+
+    // Part B Item 6: Stage questions in production intent
+    const isLongest = /\blongest\b/i.test(query);
+    let stageAnswer = '';
+    if (isLongest) {
+      stageAnswer = `Joinery is the longest planned stage at ${(m.avgJoinH || 0).toFixed(1)} hours per order (40%). These are planned ratios, not measured queues; the delay builds in the wait before production starts.`;
+    } else if (/\bjoinery\b/i.test(query)) {
+      stageAnswer = `Joinery planned stage is ${(m.avgJoinH || 0).toFixed(1)} hours per order (40%). These are planned ratios, not measured queues; the delay builds in the wait before production starts.`;
+    } else if (/\bmilling\b/i.test(query)) {
+      stageAnswer = `Milling planned stage is ${(m.avgMillingH || 0).toFixed(1)} hours per order (30%). These are planned ratios, not measured queues; the delay builds in the wait before production starts.`;
+    } else if (/\bdesign\b/i.test(query)) {
+      stageAnswer = `Design planned stage is ${(m.avgDesignH || 0).toFixed(1)} hours per order (20%). These are planned ratios, not measured queues; the delay builds in the wait before production starts.`;
+    } else if (/\bfinishing\b/i.test(query)) {
+      stageAnswer = `Finishing planned stage is ${(m.avgFinH || 0).toFixed(1)} hours per order (10%). These are planned ratios, not measured queues; the delay builds in the wait before production starts.`;
+    }
+
+    if (stageAnswer) {
+      greeting = `${joineryBanner}${stageAnswer}`;
+    } else {
+      greeting = `${joineryBanner}Average planned production time is ${(m.avgDesignH + m.avgMillingH + m.avgJoinH + m.avgFinH).toFixed(1)} hours per order, while post-design wait before production rises from 0.17 to 8.62 days across workload bands.`;
+    }
     evidence=`Average planned workshop hours per order: Design <strong>${fmtNum(m.avgDesignH)}h</strong> (20%), Milling <strong>${fmtNum(m.avgMillingH)}h</strong> (30%), Joinery <strong>${fmtNum(m.avgJoinH)}h</strong> (40%), Finishing <strong>${fmtNum(m.avgFinH)}h</strong> (10%). Across workload bands, post-design wait before production rises from <strong>0.17 to 8.62 days</strong> (Spearman rho = +0.798), while actual production time stays flat.`;
     interpretation=`The delivery delay builds in the wait queue before production starts, rather than a workshop stage. Recorded stage hours reflect fixed planned labor ratios (20% design, 30% milling, 40% joinery, 10% finishing) rather than measured stage queues. Therefore, the constraint is waiting before production starts, not a workshop stage.`;
     action=`Make the promised delivery date reflect current open orders when quoting.`;
@@ -2334,11 +2388,20 @@ async function sendFurnicoFABMsg(){
   document.getElementById('fcp-messages').appendChild(d);
 
   if (GEMINI_API_KEY) {
+    const periodCheck = checkPeriodQuery(text);
+    if (periodCheck.isOutOfRange) {
+      document.getElementById('fcp-typing')?.remove();
+      addFCPMsg('ai', 'The dataset covers 2 January 2025 to 1 January 2027, so there is no data for that period.');
+      return;
+    }
     try {
       const geminiRes = await callGeminiAPI(text);
       document.getElementById('fcp-typing')?.remove();
       const modelName = (geminiRes.model || 'Gemini').toUpperCase();
-      addFCPMsg('ai', `<div style="font-size:10px;color:#10b981;font-weight:700;margin-bottom:4px;">✨ ${modelName}</div>${geminiRes.text}<br><a href="#" onclick="navigateTo('ask-ai');closeFurnico();return false;" style="color:var(--accent);font-size:11px;display:inline-block;margin-top:6px;">Open in Ask AI tab →</a>`);
+      const periodNotice = periodCheck.hasPeriodMention
+        ? `<div style="font-size:11px;color:var(--text-secondary);margin-bottom:6px;">Note: these figures cover the full dataset period, 2 January 2025 to 1 January 2027. Filtering by a specific period is not available in this proof of concept.</div>`
+        : '';
+      addFCPMsg('ai', `<div style="font-size:10px;color:#10b981;font-weight:700;margin-bottom:4px;">✨ ${modelName}</div>${periodNotice}${geminiRes.text}<br><a href="#" onclick="navigateTo('ask-ai');closeFurnico();return false;" style="color:var(--accent);font-size:11px;display:inline-block;margin-top:6px;">Open in Ask AI tab →</a>`);
       return;
     } catch (e) {
       console.warn('FAB Gemini error:', e);
