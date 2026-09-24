@@ -1375,8 +1375,10 @@ let answerCount=0;
 const feedbackStore=JSON.parse(localStorage.getItem('mfc_ai_feedback')||'[]');
 
 /* ── Google Gemini Integration State ── */
+/* ── Google Gemini Integration State ── */
 const PINNED_GEMINI_MODEL = 'gemini-3.1-flash-lite';
 let GEMINI_API_KEY = localStorage.getItem('mfc_gemini_api_key') || '';
+const geminiHistory = [];
 
 function updateGeminiStatusUI(){
   const dot = document.getElementById('gemini-status-dot');
@@ -1486,6 +1488,7 @@ Tone and Persona:
 - Never use the words: causes, caused, drives, confirms, proves. Use "is associated with", "shows", "indicates" instead.
 - All figures cover the full dataset period, 2025-01-02 to 2027-01-01. If the manager asks about a specific period (a quarter, a month, a year), the FIRST sentence must say the figures cover the full period and period filtering is not available in this proof of concept.
 - For resignation questions, say "orders accepted within 21 days after a resignation".
+- If the data above does not contain the answer, say so plainly and suggest a related question you can answer. Never invent figures, forecasts or customer details.
 
 Operational Data & Telemetry:
 - Orders: ${(m.totalOrders || 1166).toLocaleString('en-AU')} total quoted (${(m.delivered || 460).toLocaleString('en-AU')} delivered, ${(m.lost || 689).toLocaleString('en-AU')} lost)
@@ -1518,27 +1521,39 @@ ${productTable}
   * Material Types: p = 0.989 (no significant association found between delivery delay rates and timber materials).
   * Quote Acceptance: Acceptance rates are flat at 40.9% across quote price and complexity (pricing and complexity have no significant association with customer acceptance).
   * Delivery Delays: Workshop workload (pre-WIP concurrent orders) is strongly associated with delivery delays. Late rate escalates from 0.0% (<10 orders) to 82.7% (16+ orders).
+  * Late penalties: $31,117.79 in total; late orders averaged 2.8 days late (maximum 7).
+  * Designer skill: low-skill 24.6% late vs high-skill 12.2%; no significant association after controlling for workload (p = 0.83).
+  * Complexity vs lateness: rho = -0.136 (complex orders slightly less often late, because promised lead time scales with complexity).
+  * Late rate by product: Sideboard 6.9%, Bookshelf 10.2%, Dining Table 14.0%, Office Desk 14.0%, Media Console 22.2%.
+  * Back-test: +0.75 days per open order above 9 would have lifted on-time from 86.3% to 98.9% (63 late to 5), extending 174 of 460 quotes by 3.3 days on average. Present it as a historical back-test, not a guarantee.
 
 Output Format:
-<p style="margin:0 0 10px;font-size:13px;line-height:1.5;">[Neutral 1-sentence opening directly answering the question with the key metric]</p>
+<p style="margin:0 0 10px;font-size:13px;line-height:1.5;">[Neutral opening paragraph, at most 2 sentences, answering the question directly and including the key figure]</p>
 <div class="ai-structured">
   <div class="ai-block evidence-block"><div style="font-weight:700;color:var(--accent2);margin-bottom:4px;">📊 EVIDENCE</div><div class="block-text">[Focused, relevant metrics strictly answering this inquiry]</div></div>
   <div class="ai-block interpretation-block"><div style="font-weight:700;color:var(--accent);margin-bottom:4px;">💡 INTERPRETATION</div><div class="block-text">[Objective operational explanation based on tested findings]</div></div>
   <div class="ai-block action-block"><div style="font-weight:700;color:var(--accent4);margin-bottom:4px;">🎯 STRATEGIC ACTION</div><div class="block-text">[Actionable, practical operational steps]</div></div>
   <div class="ai-block limitation-block"><div style="font-weight:700;color:var(--accent5);margin-bottom:4px;">⚠️ LIMITATION & ASSUMPTION</div><div class="block-text">[Constructive caveats or data boundaries]</div></div>
 </div>
-<p style="margin:10px 0 0;font-size:12px;color:var(--text-muted);font-style:italic;">[Professional neutral closing line offering relevant follow-up]</p>
 
 Privacy: Protect individual customer and employee identities. Aggregate data only.`;
 
+  const recentPairs = geminiHistory.slice(-3);
+  const contents = [];
+  if (recentPairs.length > 0) {
+    recentPairs.forEach((pair, idx) => {
+      const userText = idx === 0 ? `${systemPrompt}\n\nManager Question: "${pair.user}"` : pair.user;
+      contents.push({ role: 'user', parts: [{ text: userText }] });
+      contents.push({ role: 'model', parts: [{ text: pair.model }] });
+    });
+    contents.push({ role: 'user', parts: [{ text: query }] });
+  } else {
+    contents.push({ role: 'user', parts: [{ text: `${systemPrompt}\n\nManager Question: "${query}"` }] });
+  }
+
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${PINNED_GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
   const payload = {
-    contents: [
-      {
-        role: 'user',
-        parts: [{ text: `${systemPrompt}\n\nManager Question: "${query}"` }]
-      }
-    ],
+    contents,
     generationConfig: {
       temperature: 0.2,
       maxOutputTokens: 2000
@@ -1561,6 +1576,8 @@ Privacy: Protect individual customer and employee identities. Aggregate data onl
   if (!text) {
     throw new Error('Gemini returned an empty response.');
   }
+  geminiHistory.push({ user: query, model: text.trim() });
+  if (geminiHistory.length > 10) geminiHistory.splice(0, geminiHistory.length - 10);
   return { text: formatMarkdownText(text.trim()), model: PINNED_GEMINI_MODEL };
 }
 
@@ -1607,12 +1624,83 @@ window.askSuggestion=function(el){
   if(input){input.value=el.textContent;sendAIPageMsg();}
 };
 
+let lastAIAnswerId = null;
+
+window.revealAnswerBlock = function(id, blockType, btn){
+  const card = document.getElementById(id);
+  if (!card) return;
+  const structured = card.querySelector('.ai-structured');
+  if (!structured) return;
+
+  if (blockType === 'why') {
+    structured.querySelectorAll('.evidence-block, .interpretation-block').forEach(b => b.classList.add('revealed'));
+  } else if (blockType === 'action') {
+    structured.querySelectorAll('.action-block').forEach(b => b.classList.add('revealed'));
+  } else if (blockType === 'limitation') {
+    structured.querySelectorAll('.limitation-block').forEach(b => b.classList.add('revealed'));
+  } else if (blockType === 'all') {
+    structured.querySelectorAll('.ai-block').forEach(b => b.classList.add('revealed'));
+  }
+
+  const chipsWrap = document.getElementById(`chips-${id}`);
+  if (btn) {
+    btn.style.display = 'none';
+  } else if (chipsWrap) {
+    if (blockType === 'why') {
+      const chip = Array.from(chipsWrap.querySelectorAll('.ai-chip')).find(c => c.textContent.trim() === 'Why?');
+      if (chip) chip.style.display = 'none';
+    } else if (blockType === 'action') {
+      const chip = Array.from(chipsWrap.querySelectorAll('.ai-chip')).find(c => c.textContent.trim() === 'What should I do?');
+      if (chip) chip.style.display = 'none';
+    } else if (blockType === 'limitation') {
+      const chip = Array.from(chipsWrap.querySelectorAll('.ai-chip')).find(c => c.textContent.trim() === 'How reliable is this?');
+      if (chip) chip.style.display = 'none';
+    } else if (blockType === 'all') {
+      chipsWrap.querySelectorAll('.ai-chip').forEach(c => c.style.display = 'none');
+    }
+  }
+
+  const allBlocks = structured.querySelectorAll('.evidence-block, .interpretation-block, .action-block, .limitation-block');
+  if (allBlocks.length > 0 && Array.from(allBlocks).every(b => b.classList.contains('revealed'))) {
+    if (chipsWrap) chipsWrap.querySelectorAll('.ai-chip').forEach(c => c.style.display = 'none');
+  }
+};
+
 async function sendAIPageMsg(){
   const input=document.getElementById('ai-page-input');
   if(!input)return;
   const text=input.value.trim();
   if(!text)return;
   input.value='';
+
+  // Requirement 18: Typed follow-ups (4 words or fewer matching specific phrases)
+  const words = text.split(/\s+/).filter(Boolean);
+  const clean = text.toLowerCase().replace(/[^\w\s]/g, '').replace(/\s+/g, ' ').trim();
+  const followUpMap = {
+    'why': 'why',
+    'how come': 'why',
+    'what should i do': 'action',
+    'what now': 'action',
+    'tell me more': 'all',
+    'more details': 'all',
+    'how sure': 'limitation',
+    'is this reliable': 'limitation'
+  };
+
+  if (words.length <= 4 && followUpMap[clean]) {
+    addAIPageMsg('user', null, text);
+    if (!lastAIAnswerId || !document.getElementById(lastAIAnswerId)) {
+      addAIPageMsg('ai', null, 'Ask me a question first, for example: How many orders are open right now?');
+      return;
+    }
+    window.revealAnswerBlock(lastAIAnswerId, followUpMap[clean]);
+    const targetCard = document.getElementById(lastAIAnswerId);
+    if (targetCard) {
+      targetCard.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+    return;
+  }
+
   addAIPageMsg('user',null,text);
   addAIPageTyping();
 
@@ -1652,10 +1740,25 @@ function addAIPageMsg(role,id,content,type='',miniChart=null){
   const ts=new Date().toLocaleTimeString('en-AU',{hour:'2-digit',minute:'2-digit'});
   const div=document.createElement('div');
   div.className=`ai-msg ${role}`;
-  if(id)div.id=id;
+  if(id){
+    div.id=id;
+    if(role==='ai' && type!=='welcome') {
+      lastAIAnswerId = id;
+    }
+  }
 
   const chartId=id?`mini-chart-${id}`:'';
   const chartHtml=miniChart&&chartId?`<div class="mini-chart-wrap"><canvas id="${chartId}" height="100"></canvas></div>`:'';
+
+  const showChips = role==='ai' && id && type!=='welcome' && type!=='privacy' && type!=='out-of-scope';
+  const chipsHtml = showChips ? `
+    <div class="ai-followup-chips" id="chips-${id}">
+      <button class="ai-chip" onclick="revealAnswerBlock('${id}','why',this)">Why?</button>
+      <button class="ai-chip" onclick="revealAnswerBlock('${id}','action',this)">What should I do?</button>
+      <button class="ai-chip" onclick="revealAnswerBlock('${id}','limitation',this)">How reliable is this?</button>
+      <button class="ai-chip" onclick="revealAnswerBlock('${id}','all',this)">Show all details</button>
+    </div>` : '';
+
   const feedbackHtml=(role==='ai'&&id&&type!=='welcome'&&type!=='privacy'&&type!=='out-of-scope')?`
     <div class="ai-feedback" id="fb-${id}">
       <button class="fb-btn helpful" onclick="recordFeedback('${id}',true)">👍 Helpful</button>
@@ -1675,6 +1778,7 @@ function addAIPageMsg(role,id,content,type='',miniChart=null){
     <div class="ai-msg-avatar ${role}">${role==='ai'?'🤖':'👤'}</div>
     <div class="ai-msg-body">
       <div class="ai-msg-bubble ${type}">${content}${chartHtml}</div>
+      ${chipsHtml}
       <div class="ai-msg-time">${ts}</div>
       ${feedbackHtml}
     </div>`;
@@ -1723,8 +1827,28 @@ window.recordFeedbackDetail=function(id,reason){
 /* ═══════════════════════════════════════════════════
    INTENT CLASSIFIER — keyword/synonym routing
 ═══════════════════════════════════════════════════ */
+const PRODUCT_TYPES_LIST = ['Sideboard', 'Dining Table', 'Office Desk', 'Bookshelf', 'Media Console'];
+const PRODUCT_LATE_RATES = {
+  'Sideboard': '6.9%',
+  'Bookshelf': '10.2%',
+  'Dining Table': '14.0%',
+  'Office Desk': '14.0%',
+  'Media Console': '22.2%'
+};
+
+function getNamedProducts(query){
+  const q = query.toLowerCase();
+  const found = [];
+  if (/\bsideboards?\b/i.test(q)) found.push('Sideboard');
+  if (/\bdining\s*tables?\b/i.test(q)) found.push('Dining Table');
+  if (/\boffice\s*desks?\b/i.test(q)) found.push('Office Desk');
+  if (/\b(bookshelf|bookshelves)\b/i.test(q)) found.push('Bookshelf');
+  if (/\bmedia\s*consoles?\b/i.test(q)) found.push('Media Console');
+  return found;
+}
+
 const INTENT_MAP=[
-  {intent:'privacy',    patterns:[/customer.*(name|identify|who|which customer|personal|private)/i,/employee.*(name|identify|personal|private|salary)/i,/who ordered/i,/who is customer/i,/tell me about customer \d/i,/staff.*pay$/i]},
+  {intent:'privacy',    patterns:[/which customers?|top customers?|best customers?/i,/customer.*(name|identify|who|which customer|personal|private)/i,/employee.*(name|identify|personal|private|salary)/i,/who ordered/i,/who is customer/i,/tell me about customer \d/i,/staff.*pay$/i]},
   {intent:'greeting',   patterns:[/^(hi|hello|hey|good\s(morning|afternoon|evening))\b/i,/what can you do/i,/help me/i]},
   {intent:'summary',    patterns:[/summary|overview|snapshot|how are we doing|overall performance|kpi|metrics|show me everything/i]},
   {intent:'win_rate',   patterns:[/win rate|win ratio|conversion rate|acceptance rate|how many (orders were |were )delivered|success rate|order success/i]},
@@ -1732,10 +1856,10 @@ const INTENT_MAP=[
   {intent:'revenue',    patterns:[/revenue|income|sales total|how much (did we make|money|income)|earnings|total (revenue|sales)/i]},
   {intent:'profit',     patterns:[/profit|margin|net profit|profitab|p&l|pnl|how profitable|are we making money|loss/i]},
   {intent:'costs',      patterns:[/cost|spend|expenses|outgoing|overhead|how much (did we spend|spent)|wages cost|material cost/i]},
-  {intent:'delivery',   patterns:[/deliver|on.time|late order|delay|overdue|delivery performance|on time/i]},
+  {intent:'delivery',   patterns:[/deliver|on.time|late order|delay|overdue|delivery performance|on time|penalty|cost of late|late deliveries cost|average delay|how late/i]},
   {intent:'production', patterns:[/production|bottleneck|hours|manufacturing|stage|milling|joinery|design hours|finishing|workshop|process/i]},
   {intent:'hr',         patterns:[/staff|employee|hr|turnover|resign|workforce|team|capacity|who left|headcount|talent/i]},
-  {intent:'inventory',  patterns:[/inventor|stock|material|wood|walnut|oak|ash|reorder|material level|supply/i]},
+  {intent:'inventory',  patterns:[/inventor|stock|material|wood|walnut|oak|ash|reorder|material level|supply|timber|running low|low stock/i]},
   {intent:'product',    patterns:[/best product|worst product|top product|compare product|which product|product performance|most (popular|ordered|profitable)/i]},
   {intent:'forecast',   patterns:[/forecast|predict|future|next month|next quarter|trend|projection|will we|going forward|what.*expect/i]},
   {intent:'correlation',patterns:[/why|what drives|what affect|correlation|relationship|what causes|factor|driver|associated with/i]},
@@ -1745,36 +1869,73 @@ const INTENT_MAP=[
 function classifyIntent(query){
   const q=query.toLowerCase();
 
-  // Joinery premise: joinery/joiners + bottleneck/hire/hiring checked before production
+  // 1. Privacy intent check (Item 7)
+  if(/(which customers?|top customers?|best customers?)/i.test(q) ||
+     /customer.*(name|identify|who|which customer|personal|private)/i.test(q) ||
+     /employee.*(name|identify|personal|private|salary)/i.test(q) ||
+     /who ordered/i.test(q) || /who is customer/i.test(q) || /tell me about customer \d/i.test(q) || /staff.*pay$/i.test(q)){
+    return 'privacy';
+  }
+
+  // 2. Out of scope
+  if(/weather|stock market|competitor|amazon|politics|news|sport/i.test(q)){
+    return 'out_of_scope';
+  }
+
+  // 3. Causes ruled out (Item 4)
+  // "designer", "skill", "complex", "complexity" or "material" together with "late", "lateness", "delay" or "longer"
+  if(/(designer|skill|complex|complexity|material)/i.test(q) && /(late|lateness|delay|longer)/i.test(q)){
+    return 'correlation';
+  }
+
+  // 4. Joinery premise check
   if(/(joinery|joiners?)/i.test(q) && /(bottleneck|hire|hiring)/i.test(q)){
     return 'premise_joinery_bottleneck';
   }
 
-  // New intents checked BEFORE existing ones
-  // a) resign|turnover|staff left + deliver|on-time -> premise check
+  // 5. Staff resignation premise check
   if(/(resign|turnover|staff left|staff leav)/i.test(q) && /(deliver|on-time|on time)/i.test(q)){
     return 'premise_turnover_delivery';
   }
 
-  // d) "orders are late|late orders" -> delivery intent
-  if(/orders are late|late orders|orders? (are |were )?late/i.test(q)){
+  // 6. Date advice & Management advice (Items 2 & 9)
+  // "what date", "promise", "days should I add", "lead time for a new order", "what should management do", "recommend", "what should we do about"
+  if(/(what date|promise|days should i add|lead time for a new order|what should management do|recommend|what should we do about)/i.test(q)){
+    return 'date_advice';
+  }
+
+  // 7. Cost of lateness & Delivery intent (Item 3)
+  // "penalty", "cost of late", "late deliveries cost", "average delay", "how late"
+  if(/(penalty|cost of late|late deliveries cost|average delay|how late|orders are late|late orders|orders? (are |were )?late)/i.test(q)){
     return 'delivery';
   }
 
-  // c) profitable|margin + product -> dual rankings ambiguity
+  // 8. Open orders & Commitment band lookup (Item 1)
+  // "open orders", "open right now", "current workload", "how busy", "in the workshop"
+  const hasOpenOrdersPhrase = /(open orders|open right now|current workload|how busy|in the workshop)/i.test(q);
+  const hasNumAndWorkload = /\b\d+\b/.test(q) && /(open|orders?\s+in\s+progress)/i.test(q);
+  const hasCommitment = /(due\s*date|commit|\baccept\b|\baccepting\b)/i.test(q) && !/acceptance\s*rate/i.test(q);
+  if(hasOpenOrdersPhrase || hasNumAndWorkload || hasCommitment || /commitment\s*risk/i.test(q)){
+    return 'commitment_band_lookup';
+  }
+
+  // 9. Products (Item 5): if query names a product (Sideboard, Dining Table, Office Desk, Bookshelf, Media Console)
+  const namedProducts = getNamedProducts(query);
+  if(namedProducts.length > 0){
+    return 'product_specific';
+  }
+
+  // 10. Future (Item 8): "forecast", "next month", "next quarter", "will", "predict"
+  if(/\b(forecast|next\s+month|next\s+quarter|will|predict)\b/i.test(q)){
+    return 'forecast';
+  }
+
+  // 11. Product profitability ambiguity
   if(/(profitab|margin)/i.test(q) && /product/i.test(q)){
     return 'product_profitability_ambiguity';
   }
 
-  // b) number + open|orders in progress OR promise|due date|commit|accept
-  // Exclude 'acceptance rate' so general queries for acceptance rate route to win_rate/acceptance
-  const hasNumAndWorkload = /\b\d+\b/.test(q) && /(open|orders?\s+in\s+progress)/i.test(q);
-  const hasCommitment = /(promise|due\s*date|commit|\baccept\b|\baccepting\b)/i.test(q) && !/acceptance\s*rate/i.test(q);
-  if(hasNumAndWorkload || hasCommitment || /commitment\s*risk/i.test(q)){
-    return 'commitment_band_lookup';
-  }
-
-  // Existing INTENT_MAP checks
+  // 12. Existing INTENT_MAP checks
   for(const{intent,patterns}of INTENT_MAP){
     if(patterns.some(p=>p.test(query)))return intent;
   }
@@ -1824,29 +1985,24 @@ function buildStructuredResponse(query){
 
   const intent=classifyIntent(query);
 
-  // Privacy guardrail — intercept before anything else
+  // Privacy guardrail — intercept before anything else (Item 16: shortened to two sentences)
   if(intent==='privacy'){
     return{type:'privacy',content:`
       <div class="ai-block privacy-block">
         <div class="block-icon">🔒</div>
         <div class="block-text">
           <strong>Privacy Guardrail</strong><br>
-          I can't share individual customer or employee identities — this includes names, specific customer IDs, or personal salary details.<br><br>
-          I can help with <strong>aggregate patterns</strong> instead. Would you like to see:
-          <div class="ai-q-chips" style="margin-top:8px">
-            <div class="ai-q-chip" onclick="askSuggestion(this)">Which product has the best acceptance rate?</div>
-            <div class="ai-q-chip" onclick="askSuggestion(this)">Show me the financial summary</div>
-          </div>
+          I can't share individual customer or employee identities to protect personal privacy. I can help with aggregate operational patterns instead.
         </div>
       </div>`,miniChart:null};
   }
 
-  // Out of scope
+  // Out of scope (Item 16: shortened to two sentences)
   if(intent==='out_of_scope'){
     return{type:'out-of-scope',content:`
       <div class="ai-block out-scope-block">
         <div class="block-icon">🚫</div>
-        <div class="block-text"><strong>Out of Scope</strong><br>That question falls outside my dataset. I only have access to MFC's operational data: orders, finances, HR, inventory, and production. I can't answer questions about external topics.</div>
+        <div class="block-text"><strong>Out of Scope</strong><br>That question falls outside MFC's operational dataset. I can only answer questions about orders, finances, HR, inventory, and production.</div>
       </div>`,miniChart:null};
   }
 
@@ -1859,20 +2015,53 @@ function buildStructuredResponse(query){
   const warning=getAssumptionWarning(intent);
 
   // Build structured answer
-  let greeting='',evidence='',interpretation='',action='',limitation='',closing='',miniChart=null;
+  let greeting='',evidence='',interpretation='',action='',limitation='',miniChart=null;
 
   if(intent==='premise_turnover_delivery'){
-    greeting=`<div style="padding:10px 14px;background:rgba(239,68,68,0.12);border:1px solid rgba(239,68,68,0.3);border-radius:8px;margin-bottom:12px;font-size:13px;line-height:1.5;"><strong>Premise Check: Not Supported</strong><br>Empirical analysis across all 460 delivered orders indicates that the late delivery rate within 21 days following a staff resignation was 12.8% (19 of 148 orders) versus 14.1% during other operating periods (44 of 312 orders). Fisher's exact test yields p = 0.77 (no significant association found between staff turnover and delivery delays). Delivery delay is strongly associated with concurrent workload at order acceptance.</div>`;
+    // Item 16: shortened to two sentences
+    greeting=`<div style="padding:10px 14px;background:rgba(239,68,68,0.12);border:1px solid rgba(239,68,68,0.3);border-radius:8px;margin-bottom:12px;font-size:13px;line-height:1.5;"><strong>Premise Check: Not Supported</strong><br>Empirical analysis across all 460 delivered orders indicates that late delivery within 21 days after a resignation was 12.8% (19 of 148 orders) vs 14.1% otherwise (44 of 312 orders). Fisher's exact test yields p = 0.77, showing no significant association between staff turnover and delivery delays.</div>`;
     evidence=`Late delivery rate within 21 days of a staff resignation was <strong>12.8%</strong> (19 of 148 delivered orders) compared to <strong>14.1%</strong> during other operating periods (44 of 312 delivered orders). Fisher's exact test p-value is <strong>0.77</strong> (no significant association found).`;
     interpretation=`The premise that staff turnover or maker resignations caused delivery delays is not supported by the data; no significant association found between staff turnover and delivery delays. Delivery delay is strongly associated with concurrent workload at order acceptance (pre-WIP queue depth).`;
     action=`Make the promised delivery date reflect current open orders when quoting rather than attributing delivery risk to staff departures.`;
     limitation=`Fisher's exact test evaluates all 460 delivered orders across a 21-day observation window following resignations recorded in the HR roster.`;
-    closing=`Refer to the Commitment Risk page to inspect how late rates escalate with concurrent workload.`;
     miniChart={type:'bar',data:{labels:['Within 21d of Resignation','Other Operating Periods'],datasets:[{label:'Late Delivery Rate (%)',data:[12.8,14.1],backgroundColor:[hexAlpha(COLORS.blue,0.7),hexAlpha(COLORS.purple,0.7)],borderRadius:5,borderSkipped:false}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{ticks:{color:'#8b9ec7',font:{size:9}}},y:{ticks:{color:'#8b9ec7',font:{size:9},callback:v=>v.toFixed(0)+'%'},max:25}}}};
   }
+  else if(intent==='date_advice'){
+    // Items 2 & 9: Date Advice and Management Advice
+    const N = m.currentOpenOrdersCount !== undefined ? m.currentOpenOrdersCount : (m.openOrdersCount || 17);
+    const X = (0.75 * Math.max(0, N - 9)).toFixed(1);
+    greeting = `Historical back-test: adding 0.75 days for each open order above 9 would have lifted on-time delivery from 86.3% to 98.9% (63 late orders to 5), extending 174 of 460 quotes by 3.3 days on average. At the current ${N} open orders that is +${X} days.`;
+    evidence = `Historical back-test on 460 delivered orders: adding 0.75 days for each open order above 9 lifted simulated on-time delivery from 86.3% to 98.9% (reducing late orders from 63 to 5), extending 174 of 460 quotes by 3.3 days on average. At the current ${N} open orders that is +${X} days.`;
+    interpretation = `Delays build in the pre-production queue when concurrent orders exceed 9, because quoting formulas scale with product complexity rather than workshop load. Dynamically scaling quoted lead times based on queue depth avoids unachievable commitments.`;
+    action = `Add 0.75 days to the quoted lead time for each open order above 9 at the time of quoting (currently +${X} days for ${N} open orders).`;
+    limitation = `A back-test on past orders, not a guarantee.`;
+    miniChart = {
+      type: 'bar',
+      data: {
+        labels: ['Historical Actual', 'Dynamic Formula Back-Test'],
+        datasets: [{
+          label: 'On-Time Delivery Rate (%)',
+          data: [86.3, 98.9],
+          backgroundColor: [hexAlpha(COLORS.blue, 0.75), hexAlpha(COLORS.green, 0.75)],
+          borderRadius: 5,
+          borderSkipped: false
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { ticks: { color: '#8b9ec7', font: { size: 9 } } },
+          y: { ticks: { color: '#8b9ec7', font: { size: 9 }, callback: v => v.toFixed(0) + '%' }, min: 80, max: 100 }
+        }
+      }
+    };
+  }
   else if(intent==='commitment_band_lookup'){
+    // Item 1: use currentOpenOrdersCount when no number is given
     const numMatch = query.match(/\b\d+\b/);
-    const openCount = numMatch ? parseInt(numMatch[0], 10) : m.openOrdersCount;
+    const openCount = numMatch ? parseInt(numMatch[0], 10) : (m.currentOpenOrdersCount ?? m.openOrdersCount ?? 17);
     let targetBand = m.bands[4];
     if (openCount < 10) targetBand = m.bands[0];
     else if (openCount <= 11) targetBand = m.bands[1];
@@ -1886,13 +2075,66 @@ function buildStructuredResponse(query){
     const bandLateRate = targetBand.lateRate;
     const bandOnTimeRate = 100 - bandLateRate;
 
-    greeting=`Here is the historical reference-class analysis for accepting commitments at a workload level of ${openCount} concurrent open orders:`;
+    greeting = numMatch
+      ? `At ${openCount} concurrent open orders (Band ${bandName} — ${bandLabel} Risk), historical late delivery rate was ${fmtPct(bandLateRate)} (${bandLate} of ${bandN} delivered late).`
+      : `There are currently ${openCount} open orders in the workshop (Band ${bandName} — ${bandLabel} Risk), where historical late delivery rate was ${fmtPct(bandLateRate)} (${bandLate} of ${bandN} delivered late).`;
+
     evidence=`Concurrent workload level: <strong>${openCount} open orders</strong> (Band: <strong>${bandName} — ${bandLabel} Risk</strong>). In historical operations, orders accepted within this reference class (n = ${bandN}) experienced a late delivery rate of <strong>${fmtPct(bandLateRate)}</strong> (${bandLate} of ${bandN} delivered late; ${fmtPct(bandOnTimeRate)} delivered on time). Across all 460 delivered orders, baseline late rate was 13.7%.`;
     interpretation=`In MFC's operational record, delivery outcomes correspond to queue depth at order acceptance. Orders accepted under ${bandName} concurrent workload fall into a reference class where ${bandLateRate > 15 ? 'late deliveries occurred substantially more frequently than baseline' : 'delivery delays were minimal'}.`;
     action=`Make the promised delivery date reflect current open orders when quoting.`;
     limitation=`Reference-class delivery rates describe aggregate historical frequencies across orders accepted in similar queue conditions and do not predict single-order outcomes deterministically.`;
-    closing=`Review the Commitment Risk page for historical late rates across all five workload bands.`;
     miniChart={type:'bar',data:{labels:m.bands.map(b=>b.name),datasets:[{label:'Late Delivery Rate (%)',data:m.bands.map(b=>b.lateRate),backgroundColor:m.bands.map(b=>b.name===bandName?hexAlpha(COLORS.red,0.9):hexAlpha(COLORS.blue,0.35)),borderRadius:5,borderSkipped:false}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{ticks:{color:'#8b9ec7',font:{size:9}}},y:{ticks:{color:'#8b9ec7',font:{size:9},callback:v=>v.toFixed(0)+'%'},max:100}}}};
+  }
+  else if(intent==='product_specific'){
+    // Item 5: answer for named product (or both if two named)
+    const named = getNamedProducts(query);
+    const targetProducts = named.length > 0 ? named.slice(0, 2) : ['Sideboard'];
+    const prodDel = m.byProductDelivered || m.byProduct || {};
+
+    const summaries = targetProducts.map(pt => {
+      const p = prodDel[pt] || {};
+      const delivered = p.delivered || 0;
+      const rev = Math.round(p.revenue || 0);
+      const avgM = Math.round(p.avgMargin || 0);
+      const mPct = (p.marginPct || 0).toFixed(1);
+      const accRate = (p.acceptanceRate || 0).toFixed(1);
+      const lateRate = PRODUCT_LATE_RATES[pt] || '14.0%';
+      return `${pt}: ${delivered} delivered orders, $${rev.toLocaleString('en-AU')} revenue, average margin $${avgM.toLocaleString('en-AU')} (${mPct}%), acceptance rate ${accRate}%, and late rate ${lateRate}.`;
+    });
+
+    greeting = `${summaries.join(' ')} The product difference weakens after controlling for workload.`;
+    evidence = targetProducts.map(pt => {
+      const p = prodDel[pt] || {};
+      const delivered = p.delivered || 0;
+      const rev = Math.round(p.revenue || 0);
+      const avgM = Math.round(p.avgMargin || 0);
+      const mPct = (p.marginPct || 0).toFixed(1);
+      const accRate = (p.acceptanceRate || 0).toFixed(1);
+      const lateRate = PRODUCT_LATE_RATES[pt] || '14.0%';
+      return `<strong>${pt}</strong>: ${delivered} delivered orders · Revenue $${rev.toLocaleString('en-AU')} · Avg Margin $${avgM.toLocaleString('en-AU')} · Margin ${mPct}% · Acceptance Rate ${accRate}% · Late Rate ${lateRate}.`;
+    }).join('<br>') + '<br><br>Late rate by product across all lines: Sideboard 6.9%, Bookshelf 10.2%, Dining Table 14.0%, Office Desk 14.0%, Media Console 22.2%, noting the product difference weakens after controlling for workload.';
+    interpretation = `Product late rates vary from 6.9% for Sideboard to 22.2% for Media Console, but statistical modeling indicates this disparity diminishes significantly after controlling for concurrent workshop workload at order acceptance.`;
+    action = `Set delivery commitments based on active workshop queue depth rather than adjusting lead times solely by product category.`;
+    limitation = `Product margins represent quote price minus direct timber material costs; workshop labor is tracked shop-wide rather than allocated by individual order.`;
+    miniChart = {
+      type: 'bar',
+      data: {
+        labels: targetProducts,
+        datasets: [
+          { label: 'Acceptance Rate (%)', data: targetProducts.map(pt => prodDel[pt]?.acceptanceRate || 0), backgroundColor: hexAlpha(COLORS.green, 0.75), borderRadius: 5, borderSkipped: false, yAxisID: 'y' },
+          { label: 'Late Rate (%)', data: targetProducts.map(pt => parseFloat(PRODUCT_LATE_RATES[pt]) || 0), backgroundColor: hexAlpha(COLORS.red, 0.75), borderRadius: 5, borderSkipped: false, yAxisID: 'y' }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { position: 'bottom', labels: { color: '#8b9ec7', font: { size: 9 } } } },
+        scales: {
+          x: { ticks: { color: '#8b9ec7', font: { size: 9 } } },
+          y: { ticks: { color: '#8b9ec7', font: { size: 9 }, callback: v => v.toFixed(0) + '%' }, max: 100 }
+        }
+      }
+    };
   }
   else if(intent==='product_profitability_ambiguity'){
     const prodDel = m.byProductDelivered || {};
@@ -1903,158 +2145,148 @@ function buildStructuredResponse(query){
     const dollarList = byDollar.map((p,i)=>`${i+1}. <strong>${p}</strong>: ${fmtK(prodDel[p].totalMargin)} (${prodDel[p].delivered} orders, avg ${fmtK(prodDel[p].avgMargin)}/order)`).join('<br>');
     const pctList = byPct.map((p,i)=>`${i+1}. <strong>${p}</strong>: ${(prodDel[p].margin*100).toFixed(1)}% (${fmtK(prodDel[p].totalMargin)} on ${fmtK(prodDel[p].revenue)} revenue)`).join('<br>');
 
-    greeting=`There is an explicit ambiguity in determining the 'most profitable' product, as the ranking differs substantially depending on whether profitability is measured by total gross dollar contribution or by margin percentage:`;
+    greeting=`Determining the most profitable product is ambiguous: Sideboard generates the highest total margin ($${Math.round(prodDel['Sideboard']?.totalMargin||0).toLocaleString('en-AU')}), but Dining Table achieves the highest margin percentage (${((prodDel['Dining Table']?.margin||0)*100).toFixed(1)}%).`;
     evidence=`<strong>Ranking 1: Total Dollar Margin (quotePrice − materialCost)</strong><br>${dollarList}<br><br><strong>Ranking 2: Margin Percentage (Total Dollar Margin ÷ Revenue)</strong><br>${pctList}`;
     interpretation=`Evaluating profitability requires clarifying the management objective: Sideboard contributes the largest total gross dollar margin (${fmtK(prodDel['Sideboard']?.totalMargin||0)}) due to sales volume, whereas Dining Table achieves the highest margin efficiency (${((prodDel['Dining Table']?.margin||0)*100).toFixed(1)}%). Sideboard ranks lowest on margin percentage (65.4%) despite generating the greatest gross dollar contribution.`;
     action=`Balance commercial volume with production margin by promoting Dining Tables to maximize margin rate while maintaining Sideboard volume for absolute cash contribution.`;
     limitation=`Margins are calculated as quote price minus direct timber material cost on delivered orders. Workshop labor hours and overhead allocations are ledger-level and not tracked per product.`;
-    closing=`Specify whether dollar volume or margin percentage is preferred for your current evaluation.`;
     miniChart={type:'bar',data:{labels:byDollar,datasets:[{label:'Total Dollar Margin ($k)',data:byDollar.map(p=>+(prodDel[p].totalMargin/1000).toFixed(1)),backgroundColor:hexAlpha(COLORS.cyan,0.8),borderRadius:5,borderSkipped:false,yAxisID:'y'},{label:'Margin %',data:byDollar.map(p=>+(prodDel[p].margin*100).toFixed(1)),type:'line',borderColor:COLORS.amber,pointBackgroundColor:COLORS.amber,borderWidth:2,pointRadius:4,yAxisID:'y1'}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom',labels:{color:'#8b9ec7',font:{size:9}}}},scales:{x:{ticks:{color:'#8b9ec7',font:{size:9}}},y:{type:'linear',position:'left',ticks:{color:'#8b9ec7',font:{size:9},callback:v=>'$'+v+'k'}},y1:{type:'linear',position:'right',ticks:{color:'#8b9ec7',font:{size:9},callback:v=>v.toFixed(0)+'%'},grid:{drawOnChartArea:false}}}}};
   }
   else if(intent==='win_rate'){
-    greeting=`Here is the sales conversion and acceptance rate analysis:`;
     const best=m.productTypes.reduce((b,pt)=>m.byProduct[pt].acceptanceRate>m.byProduct[b].acceptanceRate?pt:b,m.productTypes[0]);
     const worst=m.productTypes.reduce((b,pt)=>m.byProduct[pt].acceptanceRate<m.byProduct[b].acceptanceRate?pt:b,m.productTypes[0]);
+    greeting=`MFC's overall quote acceptance rate is ${fmtPct(m.acceptanceRate)} (${m.acceptedOrdersCount} accepted of ${m.totalOrders} quotes, with ${m.delivered} delivered).`;
     evidence=`Overall acceptance rate is <strong>${fmtPct(m.acceptanceRate)}</strong> (${m.acceptedOrdersCount} accepted out of ${m.totalOrders} quotes; ${m.delivered} delivered). Highest acceptance rate: <strong>${best}</strong> at ${fmtPct(m.byProduct[best].acceptanceRate)}. Lowest acceptance rate: <strong>${worst}</strong> at ${fmtPct(m.byProduct[worst].acceptanceRate)}.`;
     interpretation=`MFC accepts roughly 40.9% of order inquiries. Statistical testing indicates that quote acceptance is essentially flat across quote prices and design complexity levels rather than price-sensitive.`;
     action=`Make the promised delivery date reflect current open orders when quoting.`;
     limitation=`Acceptance rate reflects orders with status not equal to LOST. The dataset does not record specific customer decline reasons.`;
-    closing=`Review the Order Inquiries module for product-level acceptance breakdowns.`;
     miniChart={type:'bar',data:{labels:m.productTypes,datasets:[{label:'Acceptance Rate %',data:m.productTypes.map(pt=>m.byProduct[pt].acceptanceRate),backgroundColor:m.productTypes.map(pt=>hexAlpha(COLORS.green,0.3+m.byProduct[pt].acceptanceRate/200)),borderRadius:5,borderSkipped:false}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{ticks:{color:'#8b9ec7',font:{size:9}}},y:{ticks:{color:'#8b9ec7',font:{size:9},callback:v=>v.toFixed(0)+'%'}}}}};
   }
   else if(intent==='lost'){
-    greeting=`Here is the distribution of lost order inquiries:`;
     const worst=m.productTypes.reduce((b,pt)=>m.byProduct[pt].acceptanceRate<m.byProduct[b].acceptanceRate?pt:b,m.productTypes[0]);
     const lostByPt=m.productTypes.map(pt=>({pt,lost:m.byProduct[pt].lost})).sort((a,b)=>b.lost-a.lost);
+    greeting=`MFC lost ${m.lost} of ${m.totalOrders} order quotes (${fmtPct(m.lost/m.totalOrders*100)} loss rate), led by ${lostByPt[0].pt} with ${lostByPt[0].lost} lost quotes.`;
     evidence=`MFC lost <strong>${m.lost}</strong> of ${m.totalOrders} total orders (${fmtPct(m.lost/m.totalOrders*100)} loss rate). Highest loss volume: <strong>${lostByPt[0].pt}</strong> (${lostByPt[0].lost} orders lost). Lowest acceptance rate: <strong>${worst}</strong> at ${fmtPct(m.byProduct[worst].acceptanceRate)}.`;
     interpretation=`Lost inquiries occur across all product categories. Analysis indicates that order acceptance is flat at 40.9% across quote prices and complexity levels.`;
     action=`Standardize quoting response times to reduce customer drop-off during the inquiry phase.`;
     limitation=`The dataset tracks order outcomes but lacks recorded customer decline reasons.`;
-    closing=`Let me know if you would like to examine order status breakdowns by product.`;
     miniChart={type:'bar',data:{labels:m.productTypes,datasets:[{label:'Lost Orders',data:m.productTypes.map(pt=>m.byProduct[pt].lost),backgroundColor:hexAlpha(COLORS.red,0.7),borderRadius:5,borderSkipped:false}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{ticks:{color:'#8b9ec7',font:{size:9}}},y:{ticks:{color:'#8b9ec7',font:{size:9}}}}}};
   }
   else if(intent==='revenue'){
-    greeting=`Here is the revenue breakdown from delivered furniture orders:`;
     const topMon=Object.entries(m.monthlyFinance).sort((a,b)=>b[1].rev-a[1].rev)[0];
+    greeting=`MFC recognized $${Math.round(m.totalRev).toLocaleString('en-AU')} in total revenue across ${m.delivered} delivered orders, peaking in ${monLabel(topMon[0])} at $${Math.round(topMon[1].rev).toLocaleString('en-AU')}.`;
     evidence=`Total recognized revenue is <strong>${fmtK(m.totalRev)}</strong> across ${m.delivered} delivered orders. Peak revenue month was <strong>${monLabel(topMon[0])}</strong> at ${fmtK(topMon[1].rev)}.`;
     interpretation=`Revenue is recognized upon successful delivery. Quoting realistic delivery dates based on current open orders and maintaining on-time completion protects realized revenue.`;
     action=`Review pricing and material costs for high-demand items such as dining tables and sideboards to protect net revenue contribution.`;
     limitation=`Revenue is recognized at quote price upon order delivery; stage payments or financing terms are not recorded in this ledger.`;
-    closing=`Month-over-month revenue trends and product breakdowns are available for detailed inspection.`;
     const months=Object.keys(m.monthlyFinance).sort();
     miniChart={type:'line',data:{labels:months.map(monLabel),datasets:[{label:'Revenue',data:months.map(mo=>m.monthlyFinance[mo].rev),borderColor:COLORS.cyan,backgroundColor:hexAlpha(COLORS.cyan,0.15),borderWidth:2,tension:0.4,fill:true,pointRadius:2}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{ticks:{color:'#8b9ec7',font:{size:9}}},y:{ticks:{color:'#8b9ec7',font:{size:9},callback:v=>fmtK(v)}}}}};
   }
   else if(intent==='profit'){
-    greeting=`Here is the summary of operational profitability and net margins:`;
-    evidence=`Net profit is <strong style="color:${m.netProfit>=0?'var(--accent4)':'var(--accent-red)'}">${fmtK(m.netProfit)}</strong> with a <strong>${fmtPct(m.profitMargin)}</strong> net margin on ${fmtK(m.totalRev)} revenue and ${fmtK(m.totalCost)} total costs.`;
+    // Item 10: Change Net profit to Revenue minus costs
+    greeting=`Revenue minus costs is $${Math.round(m.netProfit).toLocaleString('en-AU')} (${fmtPct(m.profitMargin)} margin) on $${Math.round(m.totalRev).toLocaleString('en-AU')} revenue and $${Math.round(m.totalCost).toLocaleString('en-AU')} total costs.`;
+    evidence=`Revenue minus costs is <strong style="color:${m.netProfit>=0?'var(--accent4)':'var(--accent-red)'}">$${Math.round(m.netProfit).toLocaleString('en-AU')}</strong> with a <strong>${fmtPct(m.profitMargin)}</strong> net margin on ${fmtK(m.totalRev)} revenue and ${fmtK(m.totalCost)} total costs.`;
     interpretation=`A ${fmtPct(m.profitMargin)} net margin provides modest operating cushion. Because fixed wages and overheads constitute the majority of operating expenses, maintaining steady delivery volume is critical.`;
     action=`Maintain steady workshop throughput and evaluate lumber reordering agreements to trim direct material costs.`;
     limitation=`Operating expenses are tracked at the facility ledger level rather than allocated order-by-order.`;
-    closing=`Detailed expense breakdowns across wages, overhead, and materials are available in the Financial Ledger.`;
     miniChart={type:'doughnut',data:{labels:['Wages','Overheads','Materials','Other'],datasets:[{data:[m.wagesTotal,m.overheadsTotal,m.materialCostTotal,m.otherCosts],backgroundColor:[hexAlpha(COLORS.amber,0.8),hexAlpha(COLORS.purple,0.8),hexAlpha(COLORS.blue,0.8),hexAlpha(COLORS.green,0.8)],borderColor:'transparent'}]},options:{responsive:true,maintainAspectRatio:false,cutout:'55%',plugins:{legend:{position:'right',labels:{color:'#8b9ec7',font:{size:9}}}}}};
   }
   else if(intent==='costs'){
-    greeting=`Here is the breakdown of operating expenses:`;
+    greeting=`Total operating costs are $${Math.round(m.totalCost).toLocaleString('en-AU')}, driven by wages of $${Math.round(m.wagesTotal).toLocaleString('en-AU')} (${(m.wagesTotal/m.totalCost*100).toFixed(1)}%), overheads of $${Math.round(m.overheadsTotal).toLocaleString('en-AU')}, and materials of $${Math.round(m.materialCostTotal).toLocaleString('en-AU')}.`;
     evidence=`Total operating costs are <strong>${fmtK(m.totalCost)}</strong>. Breakdown: Wages ${fmtK(m.wagesTotal)} (${(m.wagesTotal/m.totalCost*100).toFixed(1)}%), Overheads ${fmtK(m.overheadsTotal)}, and Materials ${fmtK(m.materialCostTotal)}.`;
     interpretation=`Wages represent the largest cost component (${(m.wagesTotal/m.totalCost*100).toFixed(1)}%), consistent with bespoke woodworking operations.`;
     action=`Plan maker staffing levels to match baseline volume without incurring unnecessary overtime or recruitment overhead.`;
     limitation=`Ledger records direct operational expenses; indirect opportunity costs from lead times are not represented.`;
-    closing=`Expense trends can be reviewed month by month in the Financial Performance module.`;
   }
   else if(intent==='delivery'){
-    greeting=`Here is the analysis of on-time delivery performance:`;
-    evidence=`MFC achieved an on-time delivery rate of <strong>${fmtPct(m.onTimePct)}</strong> (${m.onTimeCount} delivered on time, ${m.lateCount} delivered late out of ${m.delivered} total delivered orders). Late delivery penalties totaled <strong>$31,117.79</strong>.`;
+    // Item 3: Cost of Lateness & delivery evidence
+    greeting=`MFC achieved an on-time delivery rate of ${fmtPct(m.onTimePct)} (${m.onTimeCount} on time, ${m.lateCount} late out of ${m.delivered} delivered), with late penalties totalling $31,117.79 and late orders averaging 2.8 days late.`;
+    evidence=`MFC achieved an on-time delivery rate of <strong>${fmtPct(m.onTimePct)}</strong> (${m.onTimeCount} delivered on time, ${m.lateCount} delivered late out of ${m.delivered} total delivered orders). Late penalties totalled $31,117.79 (10% of the final payment on each late order). Late orders averaged 2.8 days late (maximum 7).`;
     interpretation=`Delivery timeliness is strongly associated with concurrent workload at the time orders are accepted. Orders accepted when open orders reached 14 or more experienced sharp increases in delay rates (82.7% late rate in the 16+ band). Promised lead times stay flat at about 18 days across all workload bands, while actual lead times rise from 12.0 to 20.4 days, so the promise falls short once open orders reach 14 to 15. Staff resignations (p = 0.77) and material inventory levels (p = 0.989) show no significant association with delivery delays.`;
     action=`Make the promised delivery date reflect current open orders when quoting.`;
     limitation=`Delivery timeliness is assessed against the scheduled due date established at order creation.`;
-    closing=`Refer to the Commitment Risk page to view the late delivery rate across each workload band.`;
     miniChart={type:'doughnut',data:{labels:['On Time','Late'],datasets:[{data:[m.onTimeCount,m.lateCount],backgroundColor:[hexAlpha(COLORS.green,0.8),hexAlpha(COLORS.red,0.8)],borderColor:'transparent'}]},options:{responsive:true,maintainAspectRatio:false,cutout:'55%',plugins:{legend:{position:'right',labels:{color:'#8b9ec7',font:{size:9}}}}}};
   }
   else if(intent==='production' || intent==='premise_joinery_bottleneck'){
+    // Item 16: shortened to two sentences
     const joineryBanner = intent === 'premise_joinery_bottleneck'
-      ? `<div style="padding:10px 14px;background:rgba(239,68,68,0.12);border:1px solid rgba(239,68,68,0.3);border-radius:8px;margin-bottom:12px;font-size:13px;line-height:1.5;"><strong>Premise Check: Not Supported</strong><br>Joinery hours are planned ratios (40% of each order), not measured queue times, so the data does not show joinery as a bottleneck. The delay builds in the wait before production starts.</div>`
+      ? `<div style="padding:10px 14px;background:rgba(239,68,68,0.12);border:1px solid rgba(239,68,68,0.3);border-radius:8px;margin-bottom:12px;font-size:13px;line-height:1.5;"><strong>Premise Check: Not Supported</strong><br>Joinery hours are planned ratios (40% of each order), not measured queue times, so the data does not show joinery as a bottleneck. The delivery delay builds in the wait queue before production starts.</div>`
       : '';
-    greeting=`${joineryBanner}Here is the operational bottleneck and workshop stage analysis:`;
+    greeting=`${joineryBanner}Average planned production time is ${(m.avgDesignH + m.avgMillingH + m.avgJoinH + m.avgFinH).toFixed(1)} hours per order, while post-design wait before production rises from 0.17 to 8.62 days across workload bands.`;
     evidence=`Average planned workshop hours per order: Design <strong>${fmtNum(m.avgDesignH)}h</strong> (20%), Milling <strong>${fmtNum(m.avgMillingH)}h</strong> (30%), Joinery <strong>${fmtNum(m.avgJoinH)}h</strong> (40%), Finishing <strong>${fmtNum(m.avgFinH)}h</strong> (10%). Across workload bands, post-design wait before production rises from <strong>0.17 to 8.62 days</strong> (Spearman rho = +0.798), while actual production time stays flat.`;
     interpretation=`The delivery delay builds in the wait queue before production starts, rather than a workshop stage. Recorded stage hours reflect fixed planned labor ratios (20% design, 30% milling, 40% joinery, 10% finishing) rather than measured stage queues. Therefore, the constraint is waiting before production starts, not a workshop stage.`;
     action=`Make the promised delivery date reflect current open orders when quoting.`;
     limitation=`Stage hours reflect standard planned labor allocations per order rather than physical stage queue times.`;
-    closing=`Stage allocations and queue telemetry can be reviewed on the Operations Board and Commitment Risk page.`;
     miniChart={type:'bar',data:{labels:['Design','Milling','Joinery','Finishing'],datasets:[{label:'Avg Hours',data:[m.avgDesignH,m.avgMillingH,m.avgJoinH,m.avgFinH],backgroundColor:[hexAlpha(COLORS.blue,0.75),hexAlpha(COLORS.cyan,0.75),hexAlpha(COLORS.purple,0.9),hexAlpha(COLORS.amber,0.75)],borderRadius:5,borderSkipped:false}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{ticks:{color:'#8b9ec7',font:{size:9}}},y:{ticks:{color:'#8b9ec7',font:{size:9}}}}}};
   }
   else if(intent==='hr'){
-    greeting=`Here is the workforce status and retention summary:`;
     const activeDesigners = (DATA.hrRoster||[]).filter(r=>r.role?.toLowerCase()==='designer'&&r.status==='Active').length;
     const activeMakers = (DATA.hrRoster||[]).filter(r=>r.role?.toLowerCase()==='maker'&&r.status==='Active').length;
+    greeting=`MFC has ${m.activeStaff} active staff out of ${m.totalStaff} total (${m.resignedStaff} resignations, ${fmtPct(m.resignedStaff/Math.max(m.totalStaff,1)*100)} turnover), with no significant association between staff turnover and delivery delays (p = 0.77).`;
     evidence=`Active staff: <strong>${m.activeStaff} of ${m.totalStaff}</strong> (${m.resignedStaff} resigned, representing a <strong>${fmtPct(m.resignedStaff/Math.max(m.totalStaff,1)*100)}</strong> turnover rate). Active roles: ${activeDesigners} designers and ${activeMakers} makers.`;
     interpretation=`Twelve staff resignations occurred over the observation period. Statistical analysis demonstrates that late delivery rates within 21 days of a resignation (19 of 148 orders, 12.8%) did not differ significantly from other operating periods (44 of 312 orders, 14.1%; Fisher exact test p = 0.77). No significant association found between maker departures and delivery delays.`;
     action=`Focus HR planning on steady workforce onboarding and maker retention to preserve baseline workshop capacity.`;
     limitation=`HR roster tracks active versus resigned dates without qualitative exit interview records.`;
-    closing=`Detailed headcount timelines are available in the Human Resources section.`;
     miniChart={type:'doughnut',data:{labels:['Active','Resigned'],datasets:[{data:[m.activeStaff,m.resignedStaff],backgroundColor:[hexAlpha(COLORS.green,0.8),hexAlpha(COLORS.red,0.8)],borderColor:'transparent'}]},options:{responsive:true,maintainAspectRatio:false,cutout:'55%',plugins:{legend:{position:'right',labels:{color:'#8b9ec7',font:{size:9}}}}}};
   }
   else if(intent==='inventory'){
-    greeting=`Here is the current status of timber inventory:`;
+    greeting=`MFC tracks ${m.materialsList.length} timber types with stock currently ranging from ${Math.min(...m.materialsList.map(mat=>m.invByMaterial[mat].currentLevel))}m³ to ${Math.max(...m.materialsList.map(mat=>m.invByMaterial[mat].currentLevel))}m³; material types show no significant association with delivery delays (p = 0.989).`;
     const lowStock=m.materialsList.filter(mat=>m.invByMaterial[mat].currentLevel<5);
     const topC=m.materialsList.reduce((b,mat)=>m.invByMaterial[mat].totalConsumed>m.invByMaterial[b].totalConsumed?mat:b,m.materialsList[0]);
     evidence=`${m.materialsList.length} timber types tracked. Current stock: ${m.materialsList.map(mat=>`${mat}: <strong>${m.invByMaterial[mat].currentLevel}m³</strong>`).join(', ')}. Most consumed: <strong>${topC}</strong> (${m.invByMaterial[topC].totalConsumed}m³ total consumed). Total reorder events: ${m.totalReorderEvents}.`;
     interpretation=`${lowStock.length?`Stock for <strong>${lowStock.join(', ')}</strong> is below the 5m³ buffer threshold.`: 'Stock levels currently satisfy operating thresholds.'} Statistical testing indicates no significant association found between material type and delivery delays (p = 0.989).`;
     action=`Maintain dynamic reorder triggers at 5m³ to ensure continuous material availability.`;
     limitation=`Inventory log tracks volumes in cubic meters; inventory carrying costs are not recorded order-by-order.`;
-    closing=`Timber consumption rates can be tracked in the Inventory Log.`;
     miniChart={type:'bar',data:{labels:m.materialsList,datasets:[{label:'Current Stock (m³)',data:m.materialsList.map(mat=>m.invByMaterial[mat].currentLevel),backgroundColor:m.materialsList.map(mat=>hexAlpha(m.invByMaterial[mat].currentLevel<5?COLORS.red:COLORS.green,0.75)),borderRadius:5,borderSkipped:false}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{ticks:{color:'#8b9ec7',font:{size:9}}},y:{ticks:{color:'#8b9ec7',font:{size:9}}}}}};
   }
   else if(intent==='product'){
-    greeting=`Here is the comparative performance across furniture product categories:`;
     const best=m.productTypes.reduce((b,pt)=>m.byProduct[pt].acceptanceRate>m.byProduct[b].acceptanceRate?pt:b,m.productTypes[0]);
     const highRev=m.productTypes.reduce((b,pt)=>m.byProduct[pt].revenue>m.byProduct[b].revenue?pt:b,m.productTypes[0]);
+    greeting=`Across all products, ${best} achieved the highest acceptance rate (${fmtPct(m.byProduct[best].acceptanceRate)}), while ${highRev} generated the highest revenue ($${Math.round(m.byProduct[highRev].revenue).toLocaleString('en-AU')}).`;
     evidence=`Highest acceptance rate: <strong>${best}</strong> (${fmtPct(m.byProduct[best].acceptanceRate)}). Top revenue generator: <strong>${highRev}</strong> (${fmtK(m.byProduct[highRev].revenue)}). All products: ${m.productTypes.map(pt=>`${pt}: ${fmtPct(m.byProduct[pt].acceptanceRate)} acceptance`).join(' · ')}.`;
     interpretation=`${best} has the highest acceptance rate among inquiries, while ${highRev} provides the largest absolute revenue contribution.`;
     action=`Maintain consistent quoting response times across all product lines and monitor timber availability for ${highRev} production.`;
     limitation=`Product comparisons reflect historical orders and assume consistent customer demand profiles.`;
-    closing=`Inquire about any individual product category for detailed metrics.`;
     miniChart={type:'bar',data:{labels:m.productTypes,datasets:[{label:'Revenue ($)',data:m.productTypes.map(pt=>m.byProduct[pt].revenue),backgroundColor:m.productTypes.map((_,i)=>hexAlpha(PALETTE[i%PALETTE.length],0.75)),borderRadius:5,borderSkipped:false,yAxisID:'y'},{label:'Acceptance Rate %',data:m.productTypes.map(pt=>m.byProduct[pt].acceptanceRate),type:'line',borderColor:COLORS.amber,pointBackgroundColor:COLORS.amber,borderWidth:2,pointRadius:4,yAxisID:'y1'}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom',labels:{color:'#8b9ec7',font:{size:9}}}},scales:{x:{ticks:{color:'#8b9ec7',font:{size:9}}},y:{type:'linear',position:'left',ticks:{color:'#8b9ec7',font:{size:9},callback:v=>fmtK(v)}},y1:{type:'linear',position:'right',ticks:{color:'#8b9ec7',font:{size:9},callback:v=>v.toFixed(0)+'%'},grid:{drawOnChartArea:false}}}}};
   }
   else if(intent==='forecast'){
-    greeting=`Here is the linear revenue trend projection:`;
+    // Item 8: must start with required statement and never show past totals as forecast
     const months=Object.keys(m.monthlyFinance).sort();
     const revData=months.map(mo=>m.monthlyFinance[mo].rev);
     const n=revData.length,mx=(n-1)/2,my=revData.reduce((a,b)=>a+b)/n;
     let num=0,den=0;revData.forEach((y,x)=>{num+=(x-mx)*(y-my);den+=(x-mx)**2;});
-    const slope=den?num/den:0,intercept=my-slope*mx;
-    const proj=slope*(n)+intercept;
-    const dir=slope>0?'upward':'downward';
-    evidence=`Revenue trend is <strong>${dir}</strong> at ~${fmtK(Math.abs(slope))}/month. Projected next month revenue: <strong>${fmtK(proj)}</strong> based on ${n} operational months.`;
-    interpretation=`The historical trajectory indicates steady commercial interest. Realizing projected revenue depends on workshop throughput.`;
-    action=`Ensure material intake and maker hours remain aligned with projected production volumes.`;
-    limitation=`Projections employ linear trend regression across historical months; external macroeconomic variations are not modeled.`;
-    closing=`Seasonal breakdowns can be examined in the Forecast & Trends view.`;
+    const slope=den?num/den:0;
+
+    greeting=`This proof of concept does not forecast future revenue or orders; figures below are historical. Across 24 operating months, MFC delivered ${m.delivered} orders generating $${Math.round(m.totalRev).toLocaleString('en-AU')} in recognized revenue.`;
+    evidence=`This proof of concept does not forecast future revenue or orders; figures below are historical. Historical delivered orders total <strong>${m.delivered}</strong> with recognized revenue of <strong>${fmtK(m.totalRev)}</strong> over 24 operational months. Historical monthly revenue trend slope was ${fmtK(Math.abs(slope))}/month.`;
+    interpretation=`MFC does not generate predictive forward projections in this prototype. Operational planning should be guided by current workshop queue depth and historical capacity benchmarks.`;
+    action=`Manage delivery lead times against active workshop open orders rather than forward sales projections.`;
+    limitation=`This proof of concept does not forecast future revenue or orders; figures below are historical.`;
+    miniChart=null;
   }
   else if(intent==='correlation'){
-    greeting=`Here is the summary of statistical correlation and driver analyses:`;
-    evidence=`Quote price vs acceptance: chi-square p = 0.967. Complexity vs acceptance: chi-square p = 0.883. Pre-existing workload vs late delivery: Spearman rho = 0.560 (p < 0.001). Resignations within 21 days vs late delivery: Fisher p = 0.77. Material type vs late delivery: chi-square p = 0.989. Promised lead time vs pre-WIP: rho = -0.002 (p = 0.96); vs complexity: rho = +0.972.`;
+    // Item 4: Causes ruled out evidence
+    greeting=`Delivery delay is strongly associated with concurrent workshop workload (rho = 0.560), while designer skill (p = 0.83), complexity (rho = -0.136), materials (p = 0.989), and resignations (p = 0.77) are ruled out.`;
+    evidence=`Quote price vs acceptance: chi-square p = 0.967. Complexity vs acceptance: chi-square p = 0.883. Pre-existing workload vs late delivery: Spearman rho = 0.560 (p < 0.001). Resignations within 21 days vs late delivery: Fisher p = 0.77. Material type vs late delivery: chi-square p = 0.989. Promised lead time vs pre-WIP: rho = -0.002 (p = 0.96); vs complexity: rho = +0.972. Designer skill: low-skill 24.6% late vs high-skill 12.2%, but no significant association after controlling for workload (p = 0.83). Complexity: complex orders are slightly less often late (rho = -0.136), because promised lead time already scales with complexity (rho = 0.972).`;
     interpretation=`Empirical testing shows order acceptance is flat at 40.9% across quote prices and design complexity. Delivery delays are strongly associated with concurrent workload at order acceptance (pre-WIP queue buffer), while staffing turnover and timber reorders show no significant association.`;
     action=`Make the promised delivery date reflect current open orders when quoting.`;
     limitation=`Correlations identify statistical associations rather than direct individual-level causation.`;
-    closing=`Refer to the Correlation Drivers page for driver rankings.`;
   }
   else {
-    // Default summary
-    greeting=`Here is the operational performance snapshot for Modern Furniture Co.:`;
-    evidence=`Acceptance rate: <strong>${fmtPct(m.acceptanceRate)}</strong> (${m.acceptedOrdersCount}/${m.totalOrders}) · Revenue: <strong>${fmtK(m.totalRev)}</strong> · Net profit: <strong>${fmtK(m.netProfit)}</strong> (${fmtPct(m.profitMargin)} margin) · On-time delivery: <strong>${fmtPct(m.onTimePct)}</strong> (${m.onTimeCount} on time / ${m.lateCount} late) · Active staff: <strong>${m.activeStaff}/${m.totalStaff}</strong>.`;
+    // Default summary (Item 10: Change Net profit to Revenue minus costs)
+    greeting=`MFC delivered ${m.delivered} orders with an on-time rate of ${fmtPct(m.onTimePct)}, recognized revenue of ${fmtK(m.totalRev)}, and revenue minus costs of ${fmtK(m.netProfit)} (${fmtPct(m.profitMargin)} margin).`;
+    evidence=`Acceptance rate: <strong>${fmtPct(m.acceptanceRate)}</strong> (${m.acceptedOrdersCount}/${m.totalOrders}) · Revenue: <strong>${fmtK(m.totalRev)}</strong> · Revenue minus costs: <strong>${fmtK(m.netProfit)}</strong> (${fmtPct(m.profitMargin)} margin) · On-time delivery: <strong>${fmtPct(m.onTimePct)}</strong> (${m.onTimeCount} on time / ${m.lateCount} late) · Active staff: <strong>${m.activeStaff}/${m.totalStaff}</strong>.`;
     interpretation=`MFC achieved 86.3% on-time delivery across 460 delivered orders. Delays are concentrated in high-workload periods (pre-WIP >= 14, where late rate reaches 82.7% for 16+ open orders). Staff resignations (p = 0.77) and material inventory (p = 0.989) show no significant association with delivery delays.`;
     action=`Make the promised delivery date reflect current open orders when quoting.`;
     limitation=`Summary aggregates data across the 24-month observation window; individual modules provide granular detail.`;
-    closing=`Select any specific operational area for deeper investigation.`;
   }
 
-  // Build structured content HTML
+  // Build structured content HTML (Items 15 & 16: short answer first, blocks hidden by default)
   const periodNoticeHtml = hasPeriodMention
     ? `<div style="padding:8px 12px;background:rgba(59,130,246,0.12);border:1px solid rgba(59,130,246,0.25);border-radius:6px;margin-bottom:10px;font-size:12px;color:var(--text-secondary);line-height:1.5;">Note: these figures cover the full dataset period, 2 January 2025 to 1 January 2027. Filtering by a specific period is not available in this proof of concept.</div>`
     : '';
   const warningHtml=warning?`<div class="ai-assumption-warning">${warning}</div>`:'';
   const introGreeting = greeting ? `<p style="margin:0 0 10px;font-size:13px;line-height:1.5;">${greeting}</p>` : '';
-  const signOff = closing ? `<p style="margin:10px 0 0;font-size:12px;color:var(--text-muted);font-style:italic;">💬 ${closing}</p>` : '';
   const content=`${periodNoticeHtml}${warningHtml}
     ${introGreeting}
     <div class="ai-structured">
@@ -2062,8 +2294,7 @@ function buildStructuredResponse(query){
       ${interpretation?`<div class="ai-block interpretation-block"><div class="block-label">💡 Interpretation</div><div class="block-text">${interpretation}</div></div>`:''}
       ${action?`<div class="ai-block action-block"><div class="block-label">🎯 Strategic Action</div><div class="block-text">${action}</div></div>`:''}
       ${limitation?`<div class="ai-block limitation-block"><div class="block-label">⚠️ Limitation</div><div class="block-text">${limitation}</div></div>`:''}
-    </div>
-    ${signOff}`;
+    </div>`;
 
   return{type:intent,content,miniChart};
 }
@@ -2117,9 +2348,9 @@ async function sendFurnicoFABMsg(){
   setTimeout(()=>{
     document.getElementById('fcp-typing')?.remove();
     const resp=buildStructuredResponse(text);
-    const evidenceMatch=resp.content.match(/📊 Evidence<\/div><div class="block-text">(.*?)<\/div>/s);
-    const evidenceText=evidenceMatch?evidenceMatch[1]:'See Ask AI tab for full answer.';
-    addFCPMsg('ai',`${evidenceText}<br><br><a href="#" onclick="navigateTo('ask-ai');closeFurnico();askSuggestion({textContent:'${text.replace(/'/g,'')}'});return false;" style="color:var(--accent);font-size:11px">→ Full answer in Ask AI tab</a>`);
+    const pMatch=resp.content.match(/<p style="[^"]*">(.*?)<\/p>/s);
+    const shortText=pMatch?pMatch[1]:'See Ask AI tab for full answer.';
+    addFCPMsg('ai',`${shortText}<br><br><a href="#" onclick="navigateTo('ask-ai');closeFurnico();askSuggestion({textContent:'${text.replace(/'/g,'')}'});return false;" style="color:var(--accent);font-size:11px">→ Full answer in Ask AI tab</a>`);
   },600);
 }
 

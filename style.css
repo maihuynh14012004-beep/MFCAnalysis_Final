@@ -1637,7 +1637,14 @@ body {
 .ai-msg-time { font-size: 10px; color: var(--text-muted); margin-top: 4px; padding: 0 4px; }
 
 /* Structured answer blocks */
-.ai-structured { display: flex; flex-direction: column; gap: 10px; margin-top: 2px; }
+.ai-structured { display: flex; flex-direction: column; gap: 10px; margin-top: 6px; }
+.ai-structured .ai-block { display: none; }
+.ai-structured .ai-block.revealed { display: block; animation: aiBlockFadeIn 0.25s ease-out; }
+
+@keyframes aiBlockFadeIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
 .ai-assumption-warning {
   background: rgba(245,158,11,0.1); border: 1px solid rgba(245,158,11,0.3);
   border-radius: 8px; padding: 10px 14px; font-size: 12px; color: var(--accent5);
@@ -1660,6 +1667,17 @@ body {
 
 /* Mini chart in AI answers */
 .mini-chart-wrap { margin-top: 12px; height: 100px; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 10px; }
+
+/* AI follow-up chips */
+.ai-followup-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.ai-chip {
+  padding: 4px 12px; border-radius: 16px; border: 1px solid rgba(59,130,246,0.3);
+  font-size: 11px; font-weight: 500; cursor: pointer; transition: all 0.2s;
+  background: rgba(59,130,246,0.1); color: var(--accent);
+}
+.ai-chip:hover {
+  background: rgba(59,130,246,0.22); border-color: var(--accent); color: #fff;
+}
 
 /* AI feedback buttons */
 .ai-feedback { display: flex; gap: 8px; margin-top: 8px; }
