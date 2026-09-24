@@ -1483,6 +1483,9 @@ Tone and Persona:
 - Never refer to joinery as a measured bottleneck.
 - When discussing delivery risk or due date commitments, provide reference-class rates based on workload bands, never individual order completion probabilities.
 - Acknowledge explicit ambiguity when discussing product profitability (total dollar margin vs margin percentage).
+- Never use the words: causes, caused, drives, confirms, proves. Use "is associated with", "shows", "indicates" instead.
+- All figures cover the full dataset period, 2025-01-02 to 2027-01-01. If the manager asks about a specific period (a quarter, a month, a year), the FIRST sentence must say the figures cover the full period and period filtering is not available in this proof of concept.
+- For resignation questions, say "orders accepted within 21 days after a resignation".
 
 Operational Data & Telemetry:
 - Orders: ${(m.totalOrders || 1166).toLocaleString('en-AU')} total quoted (${(m.delivered || 460).toLocaleString('en-AU')} delivered, ${(m.lost || 689).toLocaleString('en-AU')} lost)
@@ -1967,7 +1970,7 @@ function buildStructuredResponse(query){
     const lowStock=m.materialsList.filter(mat=>m.invByMaterial[mat].currentLevel<5);
     const topC=m.materialsList.reduce((b,mat)=>m.invByMaterial[mat].totalConsumed>m.invByMaterial[b].totalConsumed?mat:b,m.materialsList[0]);
     evidence=`${m.materialsList.length} timber types tracked. Current stock: ${m.materialsList.map(mat=>`${mat}: <strong>${m.invByMaterial[mat].currentLevel}m³</strong>`).join(', ')}. Most consumed: <strong>${topC}</strong> (${m.invByMaterial[topC].totalConsumed}m³ total consumed). Total reorder events: ${m.totalReorderEvents}.`;
-    interpretation=`${lowStock.length?`Stock for <strong>${lowStock.join(', ')}</strong> is below the 5m³ buffer threshold.`: 'Stock levels currently satisfy operating thresholds.'} Statistical testing indicates no significant association found between material reorders and delivery delays (p = 0.989).`;
+    interpretation=`${lowStock.length?`Stock for <strong>${lowStock.join(', ')}</strong> is below the 5m³ buffer threshold.`: 'Stock levels currently satisfy operating thresholds.'} Statistical testing indicates no significant association found between material type and delivery delays (p = 0.989).`;
     action=`Maintain dynamic reorder triggers at 5m³ to ensure continuous material availability.`;
     limitation=`Inventory log tracks volumes in cubic meters; inventory carrying costs are not recorded order-by-order.`;
     closing=`Timber consumption rates can be tracked in the Inventory Log.`;
