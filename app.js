@@ -118,7 +118,7 @@ function checkHistoricData(){
       const p=JSON.parse(saved);
       const rows=Object.values(p).reduce((s,v)=>s+(Array.isArray(v)?v.length:0),0);
       const ts=localStorage.getItem(LS_KEY+'_ts')||'unknown';
-      st.className='historic-status found'; st.textContent=`✓ ${rows.toLocaleString()} records · saved ${ts}`;
+      st.className='historic-status found'; st.textContent=`✓ ${rows.toLocaleString('en-AU')} records · saved ${ts}`;
     } else {
       st.className='historic-status empty'; st.textContent='No historic data in local storage';
       btn.disabled=true;
@@ -214,16 +214,14 @@ async function runDataEngineerAgent(files,isBundled=false){
     const f=files[i],delay=400+i*300;
     await deaLog('📄',`Classifying <span class="hl">${f.name}</span> → <span class="ok">${classifyDisplay(f.key)}</span>`,delay);
     const data=isBundled||f.bundled?await fetchCSV(f.bundledPath||f.name):parseCSVContent(f.content);
-    if(f.key!=='unknown'){parsed[f.key]=data;await deaLog('✅',`<span class="ok">${data.length.toLocaleString()} rows</span> loaded`,delay+100);}
+    if(f.key!=='unknown'){parsed[f.key]=data;await deaLog('✅',`<span class="ok">${data.length.toLocaleString('en-AU')} rows</span> loaded`,delay+100);}
     else{await deaLog('⚠️',`<span class="warn">Unknown schema for ${f.name} — skipping</span>`,delay+100);}
   }
   Object.assign(DATA,parsed);
   const total=Object.values(parsed).reduce((s,v)=>s+(Array.isArray(v)?v.length:0),0);
-  await deaLog('🧹','Applying cleaning rules…',files.length*350+600);
-  await deaLog('💾','Saving to local memory store…',files.length*350+900);
   DATA_SOURCE=isBundled?'bundled':'uploaded';
   computeMetrics();saveToLocalStorage();
-  await deaLog('🚀',`<span class="ok">Complete — ${total.toLocaleString()} rows ready!</span>`,files.length*350+1200);
+  await deaLog('🚀',`<span class="ok">Complete — ${total.toLocaleString('en-AU')} rows ready!</span>`,files.length*350+600);
   badge.className='dea-status-badge done';badge.textContent='✓ Complete';
   actions.style.display='flex';
 }
@@ -310,6 +308,8 @@ function computeMetrics(){
     const n = bOrds.length;
     const late = bOrds.filter(o=>o.deliveryStatus!=='On Time').length;
     const lateRate = n > 0 ? (late/n)*100 : 0;
+    const meanPromised = n > 0 ? (bOrds.reduce((s,o)=>s+((new Date(o.dueDate)-new Date(o.acceptanceDate))/86400000),0)/n) : 0;
+    const meanActual = n > 0 ? (bOrds.reduce((s,o)=>s+((new Date(o.completionDate)-new Date(o.acceptanceDate))/86400000),0)/n) : 0;
     return {
       key: b.key,
       name: b.name,
@@ -320,6 +320,8 @@ function computeMetrics(){
       late,
       lateCount: late,
       lateRate,
+      meanPromised,
+      meanActual,
       orders: bOrds
     };
   });
@@ -450,14 +452,22 @@ function computeMetrics(){
   const lateDelivered = delivered.filter(o=>o.deliveryStatus!=='On Time');
   const penaltySum = lateDelivered.reduce((s,o)=>s+((o.quotePrice||0)*(o.penaltyPct||0)*0.5),0);
   const checkPenalty = penaltySum.toFixed(2)==='31117.79';
-  const selfCheckPass = checkN && checkLate && checkOnTime && checkPenalty;
+  const expectedPromised = '18.0/18.0/18.8/17.5/17.9';
+  const expectedActual = '12.0/13.3/16.4/17.8/20.4';
+  const actualPromised = bands.map(b=>b.meanPromised.toFixed(1)).join('/');
+  const actualActual = bands.map(b=>b.meanActual.toFixed(1)).join('/');
+  const checkPromised = actualPromised === expectedPromised;
+  const checkActual = actualActual === expectedActual;
+  const selfCheckPass = checkN && checkLate && checkOnTime && checkPenalty && checkPromised && checkActual;
   const selfCheck = {
     passed: selfCheckPass,
     checks: [
       { name: 'Band Sample Sizes (n)', expected: expectedN.join('/'), actual: actualN.join('/'), passed: checkN },
       { name: 'Band Late Counts', expected: expectedLate.join('/'), actual: actualLate.join('/'), passed: checkLate },
       { name: 'On-Time Delivery Rate', expected: '86.3% of 460', actual: `${actualOnTimePct.toFixed(1)}% of ${delivered.length}`, passed: checkOnTime },
-      { name: 'Late Penalty Sum', expected: '$31,117.79', actual: `$${penaltySum.toFixed(2)}`, passed: checkPenalty }
+      { name: 'Late Penalty Sum', expected: '$31,117.79', actual: `$${penaltySum.toFixed(2)}`, passed: checkPenalty },
+      { name: 'Promised Lead Time (mean days)', expected: expectedPromised, actual: actualPromised, passed: checkPromised },
+      { name: 'Actual Lead Time (mean days)', expected: expectedActual, actual: actualActual, passed: checkActual }
     ]
   };
 
@@ -495,10 +505,15 @@ function computeMetrics(){
    FORMATTERS
 ═══════════════════════════════════════════════════ */
 function fmt$(n){return'$'+Math.round(n||0).toLocaleString('en-AU');}
-function fmtK(n){if(n==null)return'—';if(Math.abs(n)>=1e6)return'$'+(n/1e6).toFixed(1)+'M';if(Math.abs(n)>=1000)return'$'+(n/1000).toFixed(1)+'K';return'$'+Math.round(n);}
+function fmtK(n){if(n==null)return'—';if(Math.abs(n)>=1e6)return'$'+(n/1e6).toFixed(2)+'M';if(Math.abs(n)>=1000)return'$'+(n/1000).toFixed(1)+'K';return'$'+Math.round(n).toLocaleString('en-AU');}
 function fmtPct(n){return(n||0).toFixed(1)+'%';}
 function fmtNum(n){return(n||0).toLocaleString('en-AU',{maximumFractionDigits:1});}
 function monLabel(mo){const[y,d]=mo.split('-');return new Date(+y,+d-1,1).toLocaleString('en-AU',{month:'short',year:'2-digit'});}
+function renderDeliveryBadge(o){
+  if(!o || o.status !== 'DELIVERED') return '<span style="color:var(--text-muted);font-size:11px;">n/a</span>';
+  const isLate = o.deliveryStatus && o.deliveryStatus !== 'On Time';
+  return `<span class="badge ${isLate ? 'late' : 'on-time'}">${isLate ? 'Late' : 'On Time'}</span>`;
+}
 function animateCounter(el,target,pre='',suf='',dec=0){
   if(!el)return;const dur=1200,s=performance.now();
   function step(n){const p=Math.min((n-s)/dur,1),e=1-Math.pow(1-p,3);el.textContent=pre+(target*e).toFixed(dec)+suf;if(p<1)requestAnimationFrame(step);}
@@ -509,13 +524,13 @@ function chartGradient(ctx,color,at=0.35,ab=0.01){const g=ctx.createLinearGradie
 /* Chart option builders */
 function lineOpts(unit){return{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},scales:{x:{grid:{color:'rgba(255,255,255,0.04)'},ticks:{color:'#8b9ec7',font:{size:10},maxRotation:45}},y:{grid:{color:'rgba(255,255,255,0.06)'},ticks:{color:'#8b9ec7',font:{size:10},callback:v=>unit==='$'?fmtK(v):fmtNum(v)+(unit&&unit!=='$'?' '+unit:'')}}},plugins:{legend:{position:'bottom',labels:{font:{size:11},padding:12}},tooltip:{callbacks:{label:c=>{const v=c.parsed.y;return unit==='$'?` ${c.dataset.label}: ${fmtK(v)}`:`  ${c.dataset.label}: ${fmtNum(v)}${unit&&unit!=='$'?' '+unit:''}`;}}}}};}
 function barOpts(unit,stacked=false){return{responsive:true,maintainAspectRatio:false,scales:{x:{stacked,grid:{color:'rgba(255,255,255,0.04)'},ticks:{color:'#8b9ec7',font:{size:10},maxRotation:30}},y:{stacked,grid:{color:'rgba(255,255,255,0.06)'},ticks:{color:'#8b9ec7',font:{size:10},callback:v=>unit==='$'?fmtK(v):fmtNum(v)}}},plugins:{legend:{position:'bottom',labels:{font:{size:11},padding:12}},tooltip:{callbacks:{label:c=>{const v=c.parsed.y;return unit==='$'?` ${c.dataset.label}: ${fmtK(v)}`:`  ${c.dataset.label}: ${fmtNum(v)}`;}}}}};}
-function donutOpts(){return{responsive:true,maintainAspectRatio:false,cutout:'60%',plugins:{legend:{position:'bottom',labels:{font:{size:11},padding:14}},tooltip:{callbacks:{label:c=>{const t=c.dataset.data.reduce((a,b)=>a+b,0);return ` ${c.label}: ${c.parsed.toLocaleString()} (${(c.parsed/t*100).toFixed(1)}%)`;}}}}};}
+function donutOpts(){return{responsive:true,maintainAspectRatio:false,cutout:'60%',plugins:{legend:{position:'bottom',labels:{font:{size:11},padding:14}},tooltip:{callbacks:{label:c=>{const t=c.dataset.data.reduce((a,b)=>a+b,0);return ` ${c.label}: ${c.parsed.toLocaleString('en-AU')} (${(c.parsed/t*100).toFixed(1)}%)`;}}}}};}
 
 /* ═══════════════════════════════════════════════════
    NAVIGATION
 ═══════════════════════════════════════════════════ */
 const PAGE_CONFIG={
-  overview:{title:'Executive Snapshot',sub:'Past · FY 2025 · All Divisions',render:renderOverview},
+  overview:{title:'Executive Snapshot',sub:'Past · 2025 to 2026 (24 months) · All Divisions',render:renderOverview},
   orders:{title:'Orders & Sales',sub:'Past · Pipeline & Product Analysis',render:renderOrders},
   finance:{title:'Financial P&L',sub:'Past · Revenue · Costs · Profitability',render:renderFinance},
   hr:{title:'Human Resources',sub:'Past · Staff · Skills · Leave Events',render:renderHR},
@@ -598,7 +613,7 @@ function drillIntoProduct(page, productType){
     <div class="drill-order-list">
       <div class="table-title" style="margin-bottom:10px">📋 All ${pt} Orders — click a row to see full detail</div>
       <div class="data-table-wrap"><table class="data-table"><thead><tr><th>#</th><th>Status</th><th>Material</th><th>Quote</th><th>Delivery</th><th>Created</th></tr></thead>
-      <tbody>${orders.map(o=>`<tr class="clickable-row" onclick="openOrderModal(${JSON.stringify(o).replace(/"/g,'&quot;')})"><td>#${o.id}</td><td><span class="badge ${o.status==='DELIVERED'?'delivered':'lost'}">${o.status}</span></td><td>${o.materialType||'—'}</td><td>${o.quotePrice?fmt$(o.quotePrice):'—'}</td><td>${o.deliveryStatus?`<span class="badge ${o.deliveryStatus==='On Time'?'on-time':'late'}">${o.deliveryStatus}</span>`:'—'}</td><td>${o.creationDate||'—'}</td></tr>`).join('')}</tbody></table></div>
+      <tbody>${orders.map(o=>`<tr class="clickable-row" onclick="openOrderModal(${JSON.stringify(o).replace(/"/g,'&quot;')})"><td>#${o.id}</td><td><span class="badge ${o.status==='DELIVERED'?'delivered':'lost'}">${o.status}</span></td><td>${o.materialType||'—'}</td><td>${o.quotePrice?fmt$(o.quotePrice):'—'}</td><td>${renderDeliveryBadge(o)}</td><td>${o.creationDate||'—'}</td></tr>`).join('')}</tbody></table></div>
     </div>`;
 
   setTimeout(()=>{
@@ -633,8 +648,7 @@ window.openOrderModal=function(orderOrStr){
   const modal=document.getElementById('order-modal'),body=document.getElementById('modal-body');
   if(!modal||!body)return;
   const riskFlags=[];
-  if(o.deliveryStatus&&o.deliveryStatus!=='On Time')riskFlags.push(`<span class="risk-badge red">⚠️ Late Delivery (+${o.lateDays||'?'}d)</span>`);
-  if((o.complexity||0)>=4)riskFlags.push(`<span class="risk-badge amber">🔴 High Complexity</span>`);
+  if(o.status==='DELIVERED' && o.deliveryStatus&&o.deliveryStatus!=='On Time')riskFlags.push(`<span class="risk-badge red">⚠️ Late Delivery (+${o.lateDays||'?'}d)</span>`);
   const totalH=(o.designHours||0)+(o.millingHours||0)+(o.joineryHours||0)+(o.finishingHours||0);
   body.innerHTML=`
     <div class="modal-section">
@@ -656,9 +670,9 @@ window.openOrderModal=function(orderOrStr){
     <div class="modal-section">
       <div class="modal-grid-2">
         <div><div class="modal-label">Material</div><div class="modal-val">${o.materialType||'—'}</div></div>
-        <div><div class="modal-label">Complexity</div><div class="modal-val">${o.complexity||'—'}/5</div></div>
-        <div><div class="modal-label">Delivery Status</div><div class="modal-val">${o.deliveryStatus||'—'}</div></div>
-        <div><div class="modal-label">Late Days</div><div class="modal-val">${o.lateDays||'0'} days</div></div>
+        <div><div class="modal-label">Complexity</div><div class="modal-val">${o.complexity||'—'}</div></div>
+        <div><div class="modal-label">Delivery Status</div><div class="modal-val">${o.status==='DELIVERED'?(o.deliveryStatus||'—'):'n/a'}</div></div>
+        <div><div class="modal-label">Late Days</div><div class="modal-val">${o.status==='DELIVERED'?(o.lateDays||0)+' days':'n/a'}</div></div>
         <div><div class="modal-label">Created</div><div class="modal-val">${o.creationDate||'—'}</div></div>
         <div><div class="modal-label">Customer ID</div><div class="modal-val">${o.customerId||'—'}</div></div>
       </div>
@@ -674,14 +688,14 @@ window.closeOrderModal=function(e){
 ═══════════════════════════════════════════════════ */
 function renderOverview(){
   const m=METRICS;
-  animateCounter(document.getElementById('kpi-revenue'),m.totalRev/1000,'$','K',1);
-  document.getElementById('kpi-orders').textContent=m.totalOrders.toLocaleString();
+  animateCounter(document.getElementById('kpi-revenue'),m.totalRev/1e6,'$','M',2);
+  document.getElementById('kpi-orders').textContent=m.totalOrders.toLocaleString('en-AU');
   animateCounter(document.getElementById('kpi-winrate'),m.winRate,'','%',1);
   animateCounter(document.getElementById('kpi-ontime'),m.onTimePct,'','%',1);
   const pe=document.getElementById('kpi-profit');
   if(pe){pe.textContent=fmtK(m.netProfit);pe.style.color=m.netProfit>=0?'var(--accent4)':'var(--accent-red)';}
   const ch=document.getElementById('kpi-profit-ch');
-  if(ch){ch.className='kpi-change '+(m.netProfit>=0?'up':'down');ch.textContent=m.netProfit>=0?'↑ Profitable':'↓ Net Loss';}
+  if(ch){ch.className='kpi-change '+(m.netProfit>=0?'up':'down');ch.textContent=(m.profitMargin||0).toFixed(1)+'% margin';}
   document.getElementById('kpi-staff').textContent=m.activeStaff+'/'+m.totalStaff;
 
   const months=Object.keys(m.monthlyFinance).sort(),mLabels=months.map(monLabel);
@@ -732,7 +746,7 @@ function drillByMonth(mon){
   if(!panel)return;
   panel.style.display='block';panel.scrollIntoView({behavior:'smooth'});
   if(title)title.textContent=`📅 ${monLabel(mon)} — ${orders.length} orders`;
-  if(body)body.innerHTML=`<div class="data-table-wrap"><table class="data-table"><thead><tr><th>#</th><th>Product</th><th>Status</th><th>Quote</th><th>Delivery</th></tr></thead><tbody>${orders.map(o=>`<tr class="clickable-row" onclick="openOrderModal(${JSON.stringify(o).replace(/"/g,'&quot;')})"><td>#${o.id}</td><td>${o.productType||'—'}</td><td><span class="badge ${o.status==='DELIVERED'?'delivered':'lost'}">${o.status}</span></td><td>${o.quotePrice?fmt$(o.quotePrice):'—'}</td><td>${o.deliveryStatus?`<span class="badge ${o.deliveryStatus==='On Time'?'on-time':'late'}">${o.deliveryStatus}</span>`:'—'}</td></tr>`).join('')}</tbody></table></div>`;
+  if(body)body.innerHTML=`<div class="data-table-wrap"><table class="data-table"><thead><tr><th>#</th><th>Product</th><th>Status</th><th>Quote</th><th>Delivery</th></tr></thead><tbody>${orders.map(o=>`<tr class="clickable-row" onclick="openOrderModal(${JSON.stringify(o).replace(/"/g,'&quot;')})"><td>#${o.id}</td><td>${o.productType||'—'}</td><td><span class="badge ${o.status==='DELIVERED'?'delivered':'lost'}">${o.status}</span></td><td>${o.quotePrice?fmt$(o.quotePrice):'—'}</td><td>${renderDeliveryBadge(o)}</td></tr>`).join('')}</tbody></table></div>`;
   updateBreadcrumb([{label:'All Months',back:()=>drillBack('orders')},{label:monLabel(mon)}]);
 }
 
@@ -751,7 +765,7 @@ function renderOrdersTable(){
   const slice=ordersFiltered.slice((ordersPage-1)*ORDERS_PER_PAGE,ordersPage*ORDERS_PER_PAGE);
   const tbody=document.getElementById('orders-table-body');
   if(!tbody)return;
-  tbody.innerHTML=slice.map(o=>`<tr class="clickable-row" onclick="openOrderModal(${JSON.stringify(o).replace(/"/g,'&quot;')})"><td><strong style="color:#f0f4ff">#${o.id}</strong></td><td>${o.productType||'—'}</td><td><span class="badge ${o.status==='DELIVERED'?'delivered':o.status==='LOST'?'lost':'in-prog'}">${o.status||'—'}</span></td><td>${o.materialType||'—'}</td><td>${o.quotePrice?fmt$(o.quotePrice):'—'}</td><td>${o.complexity||'—'}</td><td>${o.deliveryStatus?`<span class="badge ${o.deliveryStatus==='On Time'?'on-time':'late'}">${o.deliveryStatus}</span>`:'—'}</td><td>${o.creationDate||'—'}</td><td><button class="row-detail-btn" onclick="event.stopPropagation();openOrderModal(${JSON.stringify(o).replace(/"/g,'&quot;')})">Detail →</button></td></tr>`).join('');
+  tbody.innerHTML=slice.map(o=>`<tr class="clickable-row" onclick="openOrderModal(${JSON.stringify(o).replace(/"/g,'&quot;')})"><td><strong style="color:#f0f4ff">#${o.id}</strong></td><td>${o.productType||'—'}</td><td><span class="badge ${o.status==='DELIVERED'?'delivered':o.status==='LOST'?'lost':'in-prog'}">${o.status||'—'}</span></td><td>${o.materialType||'—'}</td><td>${o.quotePrice?fmt$(o.quotePrice):'—'}</td><td>${o.complexity||'—'}</td><td>${renderDeliveryBadge(o)}</td><td>${o.creationDate||'—'}</td><td><button class="row-detail-btn" onclick="event.stopPropagation();openOrderModal(${JSON.stringify(o).replace(/"/g,'&quot;')})">Detail →</button></td></tr>`).join('');
   document.getElementById('orders-page-info').textContent=`${ordersFiltered.length} records · Page ${ordersPage} of ${totalPages}`;
   const pag=document.getElementById('orders-pagination');
   if(!pag)return;
@@ -769,9 +783,10 @@ window.goOrdersPage=p=>{ordersPage=p;renderOrdersTable();};
 ═══════════════════════════════════════════════════ */
 function renderFinance(){
   const m=METRICS;
-  animateCounter(document.getElementById('fin-revenue'),m.totalRev/1000,'$','K',1);
+  animateCounter(document.getElementById('fin-revenue'),m.totalRev/1e6,'$','M',2);
   animateCounter(document.getElementById('fin-costs'),m.totalCost/1000,'$','K',1);
   const pe=document.getElementById('fin-profit');if(pe){pe.textContent=fmtK(m.netProfit);pe.style.color=m.netProfit>=0?'var(--accent4)':'var(--accent-red)';}
+  const fpm=document.getElementById('fin-profit-margin');if(fpm)fpm.textContent=(m.profitMargin||0).toFixed(1)+'% margin';
   animateCounter(document.getElementById('fin-margin'),m.profitMargin,'','%',1);
   animateCounter(document.getElementById('fin-daily-cost'),m.avgDailyCost/1000,'$','K',1);
   const months=Object.keys(m.monthlyFinance).sort(),mLabels=months.map(monLabel);
@@ -932,8 +947,8 @@ window.opsDrillProduct=function(productType){
       <td>#${o.id}</td>
       <td><span class="badge" style="background:rgba(59,130,246,0.2);color:#93c5fd">${o.currentStage||opsCurrentStage.name}</span></td>
       <td>${fmtNum(stH)}h</td>
-      <td>${o.complexity||'—'}/5</td>
-      <td>${o.deliveryStatus?`<span class="badge ${o.deliveryStatus==='On Time'?'on-time':'late'}">${o.deliveryStatus}</span>`:'—'}</td>
+      <td>${o.complexity||'—'}</td>
+      <td>${renderDeliveryBadge(o)}</td>
       <td>${risk}</td>
       <td><button class="row-detail-btn" onclick="event.stopPropagation();openOrderModal(${JSON.stringify(o).replace(/"/g,'&quot;')})">Detail →</button></td>
     </tr>`;
@@ -953,7 +968,7 @@ function renderCommitmentRisk(){
       <div class="kpi-card blue"><span class="kpi-icon">📦</span><div class="kpi-label">Current Open Orders</div><div class="kpi-value">${m.currentOpenOrdersCount||0}</div><div class="kpi-change">Active in shop floor</div></div>
       <div class="kpi-card red"><span class="kpi-icon">⚠️</span><div class="kpi-label">Current Workload Band</div><div class="kpi-value">${curBand.name||'16+'}</div><div class="kpi-change down">Severity: ${curBand.label||'Severe'}</div></div>
       <div class="kpi-card amber"><span class="kpi-icon">📊</span><div class="kpi-label">Reference-Class Late Rate</div><div class="kpi-value">${fmtPct(curBand.lateRate||0)}</div><div class="kpi-change">Historical rate (n=${curBand.n||0})</div></div>
-      <div class="kpi-card green"><span class="kpi-icon">🛡️</span><div class="kpi-label">Zero-Risk Threshold</div><div class="kpi-value">&lt;10</div><div class="kpi-change up">0.0% historical late rate</div></div>
+      <div class="kpi-card green"><span class="kpi-icon">🛡️</span><div class="kpi-label">Lowest observed band</div><div class="kpi-value">&lt;10</div><div class="kpi-change up">0.0% historical late rate</div></div>
     `;
   }
 
@@ -1050,6 +1065,70 @@ function renderCommitmentRisk(){
       }
     },
     plugins:[nLabelsPlugin]
+  });
+
+  // Line chart of promised vs actual lead time by pre-WIP band (delivered orders only)
+  createChart('chart-lead-time-bands', {
+    type: 'line',
+    data: {
+      labels: bands.map(b => b.name),
+      datasets: [
+        {
+          label: 'Promised Lead Time (mean days)',
+          data: bands.map(b => +(b.meanPromised.toFixed(1))),
+          borderColor: COLORS.blue,
+          backgroundColor: hexAlpha(COLORS.blue, 0.15),
+          borderWidth: 2.5,
+          tension: 0.2,
+          pointRadius: 5,
+          pointHoverRadius: 7,
+          pointBackgroundColor: COLORS.blue
+        },
+        {
+          label: 'Actual Lead Time (mean days)',
+          data: bands.map(b => +(b.meanActual.toFixed(1))),
+          borderColor: COLORS.amber,
+          backgroundColor: hexAlpha(COLORS.amber, 0.15),
+          borderWidth: 2.5,
+          tension: 0.2,
+          pointRadius: 5,
+          pointHoverRadius: 7,
+          pointBackgroundColor: COLORS.amber
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: {
+          position: 'top',
+          labels: { font: { size: 11 }, padding: 12 }
+        },
+        tooltip: {
+          callbacks: {
+            label: c => `  ${c.dataset.label}: ${c.parsed.y.toFixed(1)} days`
+          }
+        }
+      },
+      scales: {
+        x: {
+          grid: { color: 'rgba(255,255,255,0.04)' },
+          ticks: { color: '#8b9ec7', font: { size: 11 } }
+        },
+        y: {
+          grid: { color: 'rgba(255,255,255,0.06)' },
+          ticks: {
+            color: '#8b9ec7',
+            font: { size: 10 },
+            callback: v => v + ' d'
+          },
+          suggestedMin: 10,
+          suggestedMax: 24
+        }
+      }
+    }
   });
 }
 
@@ -1257,7 +1336,7 @@ function renderDataProfile(){
   const kpiRow=document.getElementById('dp-kpi-row');
   if(kpiRow){
     const colors=['blue','green','amber','purple'];
-    const stats=[{label:'Tables Loaded',val:schemas.length},{label:'Total Rows',val:schemas.reduce((s,sc)=>s+sc.data.length,0).toLocaleString()},{label:'Data Source',val:DATA_SOURCE==='bundled'?'Sample':DATA_SOURCE==='historic'?'Historic':'Uploaded'},{label:'Locally Saved',val:localStorage.getItem(LS_KEY)?'Yes ✓':'No'}];
+    const stats=[{label:'Tables Loaded',val:schemas.length},{label:'Total Rows',val:schemas.reduce((s,sc)=>s+sc.data.length,0).toLocaleString('en-AU')},{label:'Data Source',val:DATA_SOURCE==='bundled'?'Sample':DATA_SOURCE==='historic'?'Historic':'Uploaded'},{label:'Locally Saved',val:localStorage.getItem(LS_KEY)?'Yes ✓':'No'}];
     kpiRow.innerHTML=stats.map((st,i)=>`<div class="kpi-card ${colors[i%colors.length]}"><div class="kpi-label">${st.label}</div><div class="kpi-value" style="font-size:22px">${st.val}</div></div>`).join('');
   }
   const wrap=document.getElementById('dp-tables-wrap');
@@ -1278,7 +1357,7 @@ function renderDataProfile(){
       if(!vals.length)return;
       sampleStats[c]={min:Math.min(...vals).toFixed(1),max:Math.max(...vals).toFixed(1),avg:(vals.reduce((a,b)=>a+b)/vals.length).toFixed(1)};
     });
-    return`<div class="dp-schema-block"><div class="dp-schema-header"><div class="dp-schema-name">📋 ${sc.label}</div><div class="dp-schema-meta">${sc.data.length.toLocaleString()} rows · ${cols.length} columns</div><span class="chart-badge blue">${sc.key}</span></div>
+    return`<div class="dp-schema-block"><div class="dp-schema-header"><div class="dp-schema-name">📋 ${sc.label}</div><div class="dp-schema-meta">${sc.data.length.toLocaleString('en-AU')} rows · ${cols.length} columns</div><span class="chart-badge blue">${sc.key}</span></div>
     <table class="dp-col-table"><thead><tr><th>Column</th><th>Type</th><th>Null %</th><th>Stats / Sample</th></tr></thead><tbody>${cols.map(c=>{
       const nullPct=(nullInfo[c]/sc.data.length*100).toFixed(1);
       const stats=sampleStats[c];
@@ -1296,8 +1375,8 @@ let answerCount=0;
 const feedbackStore=JSON.parse(localStorage.getItem('mfc_ai_feedback')||'[]');
 
 /* ── Google Gemini Integration State ── */
+const PINNED_GEMINI_MODEL = 'gemini-1.5-flash';
 let GEMINI_API_KEY = localStorage.getItem('mfc_gemini_api_key') || '';
-let workingGeminiModel = localStorage.getItem('mfc_gemini_working_model') || '';
 
 function updateGeminiStatusUI(){
   const dot = document.getElementById('gemini-status-dot');
@@ -1307,12 +1386,12 @@ function updateGeminiStatusUI(){
   if (keyInput && GEMINI_API_KEY) keyInput.value = GEMINI_API_KEY;
   if (GEMINI_API_KEY) {
     if (dot) dot.style.background = '#10b981';
-    if (txt) txt.textContent = workingGeminiModel ? `Gemini Active (${workingGeminiModel})` : 'Gemini Connected';
-    if (modalMode) modalMode.innerHTML = `<span style="color:#10b981;font-weight:700;">● Google Gemini Active (${workingGeminiModel || 'Auto-Selecting Model'})</span>`;
+    if (txt) txt.textContent = `Gemini Active (${PINNED_GEMINI_MODEL})`;
+    if (modalMode) modalMode.innerHTML = `<span style="color:#10b981;font-weight:700;">● Google Gemini Active (${PINNED_GEMINI_MODEL})</span>`;
   } else {
     if (dot) dot.style.background = '#f59e0b';
-    if (txt) txt.textContent = 'Offline Engine (Connect Gemini)';
-    if (modalMode) modalMode.innerHTML = '<span style="color:#f59e0b;font-weight:700;">● Offline Rule-Based Fallback (No Key Set)</span>';
+    if (txt) txt.textContent = `Offline Engine (${PINNED_GEMINI_MODEL})`;
+    if (modalMode) modalMode.innerHTML = `<span style="color:#f59e0b;font-weight:700;">● Offline Rule Mode (Target: ${PINNED_GEMINI_MODEL})</span>`;
   }
 }
 
@@ -1335,18 +1414,15 @@ window.saveGeminiKey = function(){
   if (val) {
     GEMINI_API_KEY = val;
     localStorage.setItem('mfc_gemini_api_key', val);
-    workingGeminiModel = '';
-    localStorage.removeItem('mfc_gemini_working_model');
   }
   updateGeminiStatusUI();
   const modal = document.getElementById('gemini-modal');
   if (modal) modal.style.display = 'none';
-  addAIPageMsg('ai', null, `✨ <strong>Google Gemini Key Connected!</strong> FurBuddy will dynamically select the best available model for your account and reason live over MFC's data.`, 'welcome');
+  addAIPageMsg('ai', null, `✨ <strong>Google Gemini Key Connected!</strong> FurBuddy is pinned to <strong>${PINNED_GEMINI_MODEL}</strong> and reasoning live over MFC's data.`, 'welcome');
 };
 
 window.clearGeminiKey = function(){
   GEMINI_API_KEY = '';
-  workingGeminiModel = '';
   localStorage.removeItem('mfc_gemini_api_key');
   localStorage.removeItem('mfc_gemini_working_model');
   const input = document.getElementById('gemini-api-key-input');
@@ -1380,55 +1456,18 @@ function formatMarkdownText(md){
     .replace(/\n/g, '<br>');
 }
 
-async function fetchLiveGeminiModels(){
-  try {
-    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${GEMINI_API_KEY}`);
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.error?.message || `HTTP ${res.status}`);
-    }
-    const data = await res.json();
-    const models = (data.models || [])
-      .filter(m => Array.isArray(m.supportedGenerationMethods) && m.supportedGenerationMethods.includes('generateContent'))
-      .map(m => m.name.replace(/^models\//, ''))
-      .filter(m => !m.includes('2.5-pro') && !m.includes('1.5-flash'));
-    
-    // Sort models intelligently:
-    // 1. Modern Flash / Pro models
-    models.sort((a, b) => {
-      const score = name => {
-        let s = 0;
-        if (name.includes('flash')) s += 15;
-        if (name.includes('pro')) s += 8;
-        if (name.includes('3.')) s += 25;
-        if (name.includes('2.')) s += 15;
-        if (name.includes('preview')) s += 5;
-        return s;
-      };
-      return score(b) - score(a);
-    });
-
-    return models;
-  } catch (e) {
-    console.warn('Could not list models from Google:', e);
-    throw e;
-  }
-}
-
 async function callGeminiAPI(query){
+  if (!GEMINI_API_KEY) {
+    throw new Error('No Gemini API Key provided. Switch to offline rules mode.');
+  }
   const m = METRICS;
   const bandsTable = (m.bands || []).map(b =>
-    `  * Band ${b.name} (${b.label}): n = ${b.n}, late = ${b.late}, late rate = ${b.lateRate.toFixed(1)}%`
+    `  * Band ${b.name} (${b.label}): n = ${b.n}, late = ${b.late}, late rate = ${b.lateRate.toFixed(1)}%, mean promised = ${b.meanPromised.toFixed(1)}d, mean actual = ${b.meanActual.toFixed(1)}d`
   ).join('\n');
 
   const productTable = (m.productTypes || []).map(pt => {
     const p = (m.byProduct && m.byProduct[pt]) || {};
-    return `  * ${pt}: ${p.delivered||0} delivered, Revenue $${Math.round(p.revenue||0).toLocaleString()}, Avg Quote $${Math.round(p.avgQuote||0).toLocaleString()}, Avg Margin $${Math.round(p.avgMargin||0).toLocaleString()}, Total Margin $${Math.round(p.totalMargin||0).toLocaleString()}, Margin ${(p.marginPct||0).toFixed(1)}%, Acceptance Rate ${(p.acceptanceRate||0).toFixed(1)}%`;
-  }).join('\n');
-
-  const invSummary = (m.materialsList || Object.keys(m.invByMaterial || {})).map(mat => {
-    const iv = (m.invByMaterial && m.invByMaterial[mat]) || {};
-    return `  * ${mat}: Current stock ${iv.currentLevel||0}m³, Total reorders ${iv.totalReorders||0}, Total consumed ${iv.totalConsumed||0}m³`;
+    return `  * ${pt}: ${p.delivered||0} delivered, Revenue $${Math.round(p.revenue||0).toLocaleString('en-AU')}, Avg Quote $${Math.round(p.avgQuote||0).toLocaleString('en-AU')}, Avg Margin $${Math.round(p.avgMargin||0).toLocaleString('en-AU')}, Total Margin $${Math.round(p.totalMargin||0).toLocaleString('en-AU')}, Margin ${(p.marginPct||0).toFixed(1)}%, Acceptance Rate ${(p.acceptanceRate||0).toFixed(1)}%`;
   }).join('\n');
 
   const activeDesigners = (DATA.hrRoster || []).filter(r => r.role === 'designer' && r.status === 'Active').length;
@@ -1446,15 +1485,15 @@ Tone and Persona:
 - Acknowledge explicit ambiguity when discussing product profitability (total dollar margin vs margin percentage).
 
 Operational Data & Telemetry:
-- Orders: ${m.totalOrders || 1166} total quoted (${m.delivered || 460} delivered, ${m.lost || 689} lost)
-- Overall Acceptance Rate: ${(m.acceptanceRate || 0).toFixed(1)}% (${(m.delivered || 460) + (m.currentOpenOrdersCount || 17)} accepted / ${m.totalOrders || 1166} quotes)
+- Orders: ${(m.totalOrders || 1166).toLocaleString('en-AU')} total quoted (${(m.delivered || 460).toLocaleString('en-AU')} delivered, ${(m.lost || 689).toLocaleString('en-AU')} lost)
+- Overall Acceptance Rate: ${(m.acceptanceRate || 0).toFixed(1)}% (${(m.delivered || 460) + (m.currentOpenOrdersCount || 17)} accepted / ${(m.totalOrders || 1166).toLocaleString('en-AU')} quotes)
 - On-Time Delivery Rate: ${(m.onTimePct || 0).toFixed(1)}% (${m.onTimeCount || 397} on time, ${m.lateCount || 63} late out of ${m.delivered || 460} delivered)
 - Current Open Orders in Workshop: ${m.currentOpenOrdersCount || 17} (Band: ${m.currentOpenOrdersBand?.name || '16+'} ${m.currentOpenOrdersBand?.label || 'Severe'})
 - Financials:
-  * Total Revenue: $${Math.round(m.totalRev||0).toLocaleString()}
-  * Operating Costs: $${Math.round(m.totalCost||0).toLocaleString()}
-  * Net Profit: $${Math.round(m.netProfit||0).toLocaleString()} (Net Margin: ${(m.profitMargin || 0).toFixed(1)}%)
-  * Cost Drivers: Wages $${Math.round(m.wagesTotal||0).toLocaleString()}, Overheads $${Math.round(m.overheadsTotal||0).toLocaleString()}, Materials $${Math.round(m.materialCostTotal||0).toLocaleString()}
+  * Total Revenue: $${Math.round(m.totalRev||0).toLocaleString('en-AU')}
+  * Operating Costs: $${Math.round(m.totalCost||0).toLocaleString('en-AU')}
+  * Net Profit: $${Math.round(m.netProfit||0).toLocaleString('en-AU')} (Net Margin: ${(m.profitMargin || 0).toFixed(1)}%)
+  * Cost Drivers: Wages $${Math.round(m.wagesTotal||0).toLocaleString('en-AU')}, Overheads $${Math.round(m.overheadsTotal||0).toLocaleString('en-AU')}, Materials $${Math.round(m.materialCostTotal||0).toLocaleString('en-AU')}
 - Team Capacity & HR:
   * Active Team: ${m.activeStaff || 12} of ${m.totalStaff || 24} total (${m.resignedStaff || 12} resigned / ${((m.resignedStaff||12)/(m.totalStaff||24)*100).toFixed(1)}% turnover)
   * Active Roles: ${activeDesigners} designers, ${activeMakers} makers
@@ -1469,10 +1508,13 @@ ${bandsTable}
 - Product Table (Delivered Orders):
 ${productTable}
 - Tested Statistical Findings & Nulls:
-  * Resignations: Delivery late rate within 21 days after a staff resignation is 12.8% vs 14.1% otherwise (Fisher's exact test p = 0.77; not statistically significant; staff turnover does not cause delivery delays).
-  * Material Types: p = 0.989 (no statistically significant difference in delivery delay rates across timber materials).
-  * Quote Acceptance: Acceptance rates are flat across quote price and complexity (pricing and complexity do not drive rejections).
-  * Delivery Delays Driver: Workshop workload (pre-WIP concurrent orders) drives delivery delays. Late rate escalates from 0.0% (<10 orders) to 82.7% (16+ orders).
+  * Promised lead time vs pre-WIP Spearman rho = -0.002 (p = 0.96), vs complexity rho = +0.972 (quoting formulas ignore workshop workload and scale only with product complexity).
+  * Post-design wait before production rises from 0.17 to 8.62 days across bands (rho = +0.798), while production time stays flat.
+  * So the constraint is waiting before production starts, not a workshop stage.
+  * Resignations: Delivery late rate within 21 days after a staff resignation is 12.8% (19 of 148 orders) vs 14.1% (44 of 312 orders) otherwise (Fisher exact test p = 0.77; no significant association found between staff turnover and delivery delays).
+  * Material Types: p = 0.989 (no significant association found between delivery delay rates and timber materials).
+  * Quote Acceptance: Acceptance rates are flat at 40.9% across quote price and complexity (pricing and complexity have no significant association with customer acceptance).
+  * Delivery Delays: Workshop workload (pre-WIP concurrent orders) is strongly associated with delivery delays. Late rate escalates from 0.0% (<10 orders) to 82.7% (16+ orders).
 
 Output Format:
 <p style="margin:0 0 10px;font-size:13px;line-height:1.5;">[Neutral 1-sentence opening directly answering the question with the key metric]</p>
@@ -1486,69 +1528,37 @@ Output Format:
 
 Privacy: Protect individual customer and employee identities. Aggregate data only.`;
 
-  // Fetch actual live supported models directly from Google ModelService
-  const liveModels = await fetchLiveGeminiModels();
-  if (!liveModels || liveModels.length === 0) {
-    throw new Error('Google AI Studio returned no active models supporting generateContent for this API key.');
-  }
-
-  // If a known working model exists in liveModels, try it first
-  if (workingGeminiModel && liveModels.includes(workingGeminiModel)) {
-    liveModels.splice(liveModels.indexOf(workingGeminiModel), 1);
-    liveModels.unshift(workingGeminiModel);
-  }
-
-  let lastError = null;
-  for (const model of liveModels) {
-    try {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`;
-      const payload = {
-        contents: [
-          {
-            role: 'user',
-            parts: [{ text: `${systemPrompt}\n\nManager Question: "${query}"` }]
-          }
-        ],
-        generationConfig: {
-          temperature: 0.2,
-          maxOutputTokens: 1000
-        }
-      };
-
-      const resp = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-
-      if (resp.ok) {
-        const resData = await resp.json();
-        let text = resData.candidates?.[0]?.content?.parts?.[0]?.text || '';
-        if (text) {
-          workingGeminiModel = model;
-          localStorage.setItem('mfc_gemini_working_model', model);
-          updateGeminiStatusUI();
-          return { text: formatMarkdownText(text.trim()), model };
-        }
-      } else {
-        const err = await resp.json().catch(() => ({}));
-        lastError = new Error(err.error?.message || `HTTP ${resp.status}`);
-        const errMsg = (lastError.message || '').toLowerCase();
-        if (errMsg.includes('api_key_invalid') || errMsg.includes('api key not valid')) {
-          throw lastError;
-        }
-        console.warn(`Model ${model} returned error (${lastError.message}), trying next available model...`);
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${PINNED_GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
+  const payload = {
+    contents: [
+      {
+        role: 'user',
+        parts: [{ text: `${systemPrompt}\n\nManager Question: "${query}"` }]
       }
-    } catch (e) {
-      lastError = e;
-      if (e.message?.toLowerCase().includes('api_key_invalid')) {
-        throw e;
-      }
-      console.warn(`Fetch error for ${model}, trying next available model:`, e);
+    ],
+    generationConfig: {
+      temperature: 0.2,
+      maxOutputTokens: 1000
     }
+  };
+
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({}));
+    throw new Error(err.error?.message || `HTTP ${resp.status}`);
   }
 
-  throw lastError || new Error('No available Gemini model responded successfully');
+  const resData = await resp.json();
+  const text = resData.candidates?.[0]?.content?.parts?.[0]?.text || '';
+  if (!text) {
+    throw new Error('Gemini returned an empty response.');
+  }
+  return { text: formatMarkdownText(text.trim()), model: PINNED_GEMINI_MODEL };
 }
 
 function initAIPage(){
@@ -1566,10 +1576,10 @@ function renderAIPage(){
   const m=METRICS;
   updateGeminiStatusUI();
   const modelBadge = GEMINI_API_KEY 
-    ? `<span style="color:#10b981;font-weight:600;">✨ Google Gemini 1.5 Flash Connected</span>` 
-    : `<span style="color:#f59e0b;">Offline Rule Mode · <a href="#" onclick="openGeminiKeyModal();return false;" style="color:var(--accent);text-decoration:none;">Connect Gemini Key ⚙️</a></span>`;
+    ? `<span style="color:#10b981;font-weight:600;">✨ Google Gemini (${PINNED_GEMINI_MODEL}) Connected</span>` 
+    : `<span style="color:#f59e0b;">Offline Rule Mode · <a href="#" onclick="openGeminiKeyModal();return false;" style="color:var(--accent);text-decoration:none;">Connect Gemini Key (${PINNED_GEMINI_MODEL}) ⚙️</a></span>`;
 
-  addAIPageMsg('ai',null,`👋 <strong>Hi! I'm FurBuddy</strong> — MFC's Generative AI Analytics Agent.<br><br>I've analysed <strong>${m.totalOrders?.toLocaleString()}</strong> orders across <strong>${fmtK(m.totalRev)}</strong> in revenue with an acceptance rate of <strong>${fmtPct(m.acceptanceRate)}</strong>.<br><div style="margin:10px 0;padding:8px 12px;background:rgba(255,255,255,0.04);border-radius:8px;font-size:12px;">Active AI Engine: ${modelBadge}</div>Ask any natural language question about MFC's operations, or pick from the suggested questions.`,'welcome');
+  addAIPageMsg('ai',null,`👋 <strong>Hi! I'm FurBuddy</strong> — MFC's Generative AI Analytics Agent.<br><br>I've analysed <strong>${m.totalOrders?.toLocaleString('en-AU')}</strong> orders across <strong>${fmtK(m.totalRev)}</strong> in revenue with an acceptance rate of <strong>${fmtPct(m.acceptanceRate)}</strong>.<br><div style="margin:10px 0;padding:8px 12px;background:rgba(255,255,255,0.04);border-radius:8px;font-size:12px;">Active AI Engine: ${modelBadge}</div>Ask any natural language question about MFC's operations, or pick from the suggested questions.`,'welcome');
 }
 
 function populateAISourceList(){
@@ -1581,7 +1591,7 @@ function populateAISourceList(){
     {label:'hr_roster.csv',rows:DATA.hrRoster.length,icon:'👥'},
     {label:'inventory_log.csv',rows:DATA.inventory.length,icon:'🪵'},
   ];
-  el.innerHTML=srcs.map(s=>`<div class="ai-source-item"><span>${s.icon}</span><span class="ai-source-name">${s.label}</span><span class="ai-source-rows">${s.rows.toLocaleString()} rows</span></div>`).join('');
+  el.innerHTML=srcs.map(s=>`<div class="ai-source-item"><span>${s.icon}</span><span class="ai-source-name">${s.label}</span><span class="ai-source-rows">${s.rows.toLocaleString('en-AU')} rows</span></div>`).join('');
 }
 
 window.toggleTips=function(){
@@ -1824,11 +1834,11 @@ function buildStructuredResponse(query){
   let greeting='',evidence='',interpretation='',action='',limitation='',closing='',miniChart=null;
 
   if(intent==='premise_turnover_delivery'){
-    greeting=`<div style="padding:10px 14px;background:rgba(239,68,68,0.12);border:1px solid rgba(239,68,68,0.3);border-radius:8px;margin-bottom:12px;font-size:13px;line-height:1.5;"><strong>Premise Check: Not Supported</strong><br>Empirical analysis indicates that the late delivery rate within 21 days following a staff resignation was 12.8% (5 of 39 orders) versus 14.1% during other periods (58 of 411 orders). Fisher's exact test yields p = 0.77, confirming that maker departures do not explain late deliveries. Workload at order acceptance (concurrent open orders) is the primary empirical driver.</div>`;
-    evidence=`Late delivery rate within 21 days of a staff resignation was <strong>12.8%</strong> (5 of 39 delivered orders) compared to <strong>14.1%</strong> during other periods (58 of 411 delivered orders). Fisher's exact test p-value is <strong>0.77</strong> (no statistically significant difference).`;
-    interpretation=`The premise that staff turnover or maker resignations caused delivery delays is not supported by the data. Variations in on-time delivery are driven by concurrent workload at the time of order acceptance (pre-WIP queue depth) rather than staffing changes.`;
-    action=`Manage order acceptance and committed lead times based on concurrent open order counts rather than attributing delivery risk to staff departures.`;
-    limitation=`Fisher's exact test evaluates delivery outcomes within a 21-day observation window following resignations recorded in the HR roster.`;
+    greeting=`<div style="padding:10px 14px;background:rgba(239,68,68,0.12);border:1px solid rgba(239,68,68,0.3);border-radius:8px;margin-bottom:12px;font-size:13px;line-height:1.5;"><strong>Premise Check: Not Supported</strong><br>Empirical analysis across all 460 delivered orders indicates that the late delivery rate within 21 days following a staff resignation was 12.8% (19 of 148 orders) versus 14.1% during other operating periods (44 of 312 orders). Fisher's exact test yields p = 0.77 (no significant association found between staff turnover and delivery delays). Delivery delay is strongly associated with concurrent workload at order acceptance.</div>`;
+    evidence=`Late delivery rate within 21 days of a staff resignation was <strong>12.8%</strong> (19 of 148 delivered orders) compared to <strong>14.1%</strong> during other operating periods (44 of 312 delivered orders). Fisher's exact test p-value is <strong>0.77</strong> (no significant association found).`;
+    interpretation=`The premise that staff turnover or maker resignations caused delivery delays is not supported by the data; no significant association found between staff turnover and delivery delays. Delivery delay is strongly associated with concurrent workload at order acceptance (pre-WIP queue depth).`;
+    action=`Make the promised delivery date reflect current open orders when quoting rather than attributing delivery risk to staff departures.`;
+    limitation=`Fisher's exact test evaluates all 460 delivered orders across a 21-day observation window following resignations recorded in the HR roster.`;
     closing=`Refer to the Commitment Risk page to inspect how late rates escalate with concurrent workload.`;
     miniChart={type:'bar',data:{labels:['Within 21d of Resignation','Other Operating Periods'],datasets:[{label:'Late Delivery Rate (%)',data:[12.8,14.1],backgroundColor:[hexAlpha(COLORS.blue,0.7),hexAlpha(COLORS.purple,0.7)],borderRadius:5,borderSkipped:false}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{ticks:{color:'#8b9ec7',font:{size:9}}},y:{ticks:{color:'#8b9ec7',font:{size:9},callback:v=>v.toFixed(0)+'%'},max:25}}}};
   }
@@ -1851,7 +1861,7 @@ function buildStructuredResponse(query){
     greeting=`Here is the historical reference-class analysis for accepting commitments at a workload level of ${openCount} concurrent open orders:`;
     evidence=`Concurrent workload level: <strong>${openCount} open orders</strong> (Band: <strong>${bandName} — ${bandLabel} Risk</strong>). In historical operations, orders accepted within this reference class (n = ${bandN}) experienced a late delivery rate of <strong>${fmtPct(bandLateRate)}</strong> (${bandLate} of ${bandN} delivered late; ${fmtPct(bandOnTimeRate)} delivered on time). Across all 460 delivered orders, baseline late rate was 13.7%.`;
     interpretation=`In MFC's operational record, delivery outcomes correspond to queue depth at order acceptance. Orders accepted under ${bandName} concurrent workload fall into a reference class where ${bandLateRate > 15 ? 'late deliveries occurred substantially more frequently than baseline' : 'delivery delays were minimal'}.`;
-    action=`${openCount >= 14 ? 'At this workload level, consider quoting extended lead times or gating new order starts to avoid entering high-delay operating regimes.' : 'Current open order volume remains within manageable historical delivery bands.'}`;
+    action=`Make the promised delivery date reflect current open orders when quoting.`;
     limitation=`Reference-class delivery rates describe aggregate historical frequencies across orders accepted in similar queue conditions and do not predict single-order outcomes deterministically.`;
     closing=`Review the Commitment Risk page for historical late rates across all five workload bands.`;
     miniChart={type:'bar',data:{labels:m.bands.map(b=>b.name),datasets:[{label:'Late Delivery Rate (%)',data:m.bands.map(b=>b.lateRate),backgroundColor:m.bands.map(b=>b.name===bandName?hexAlpha(COLORS.red,0.9):hexAlpha(COLORS.blue,0.35)),borderRadius:5,borderSkipped:false}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{ticks:{color:'#8b9ec7',font:{size:9}}},y:{ticks:{color:'#8b9ec7',font:{size:9},callback:v=>v.toFixed(0)+'%'},max:100}}}};
@@ -1878,8 +1888,8 @@ function buildStructuredResponse(query){
     const best=m.productTypes.reduce((b,pt)=>m.byProduct[pt].acceptanceRate>m.byProduct[b].acceptanceRate?pt:b,m.productTypes[0]);
     const worst=m.productTypes.reduce((b,pt)=>m.byProduct[pt].acceptanceRate<m.byProduct[b].acceptanceRate?pt:b,m.productTypes[0]);
     evidence=`Overall acceptance rate is <strong>${fmtPct(m.acceptanceRate)}</strong> (${m.acceptedOrdersCount} accepted out of ${m.totalOrders} quotes; ${m.delivered} delivered). Highest acceptance rate: <strong>${best}</strong> at ${fmtPct(m.byProduct[best].acceptanceRate)}. Lowest acceptance rate: <strong>${worst}</strong> at ${fmtPct(m.byProduct[worst].acceptanceRate)}.`;
-    interpretation=`MFC accepts roughly 49.3% of order inquiries. Statistical testing indicates that quote acceptance is essentially flat across quote prices and design complexity levels rather than price-sensitive.`;
-    action=`Focus sales and capacity planning on sustainable product mixes while monitoring intake workload.`;
+    interpretation=`MFC accepts roughly 40.9% of order inquiries. Statistical testing indicates that quote acceptance is essentially flat across quote prices and design complexity levels rather than price-sensitive.`;
+    action=`Make the promised delivery date reflect current open orders when quoting.`;
     limitation=`Acceptance rate reflects orders with status not equal to LOST. The dataset does not record specific customer decline reasons.`;
     closing=`Review the Order Inquiries module for product-level acceptance breakdowns.`;
     miniChart={type:'bar',data:{labels:m.productTypes,datasets:[{label:'Acceptance Rate %',data:m.productTypes.map(pt=>m.byProduct[pt].acceptanceRate),backgroundColor:m.productTypes.map(pt=>hexAlpha(COLORS.green,0.3+m.byProduct[pt].acceptanceRate/200)),borderRadius:5,borderSkipped:false}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{ticks:{color:'#8b9ec7',font:{size:9}}},y:{ticks:{color:'#8b9ec7',font:{size:9},callback:v=>v.toFixed(0)+'%'}}}}};
@@ -1889,7 +1899,7 @@ function buildStructuredResponse(query){
     const worst=m.productTypes.reduce((b,pt)=>m.byProduct[pt].acceptanceRate<m.byProduct[b].acceptanceRate?pt:b,m.productTypes[0]);
     const lostByPt=m.productTypes.map(pt=>({pt,lost:m.byProduct[pt].lost})).sort((a,b)=>b.lost-a.lost);
     evidence=`MFC lost <strong>${m.lost}</strong> of ${m.totalOrders} total orders (${fmtPct(m.lost/m.totalOrders*100)} loss rate). Highest loss volume: <strong>${lostByPt[0].pt}</strong> (${lostByPt[0].lost} orders lost). Lowest acceptance rate: <strong>${worst}</strong> at ${fmtPct(m.byProduct[worst].acceptanceRate)}.`;
-    interpretation=`Lost inquiries occur across all product categories. Analysis indicates that order acceptance is essentially flat across quote prices and complexity levels.`;
+    interpretation=`Lost inquiries occur across all product categories. Analysis indicates that order acceptance is flat at 40.9% across quote prices and complexity levels.`;
     action=`Standardize quoting response times to reduce customer drop-off during the inquiry phase.`;
     limitation=`The dataset tracks order outcomes but lacks recorded customer decline reasons.`;
     closing=`Let me know if you would like to examine order status breakdowns by product.`;
@@ -1899,7 +1909,7 @@ function buildStructuredResponse(query){
     greeting=`Here is the revenue breakdown from delivered furniture orders:`;
     const topMon=Object.entries(m.monthlyFinance).sort((a,b)=>b[1].rev-a[1].rev)[0];
     evidence=`Total recognized revenue is <strong>${fmtK(m.totalRev)}</strong> across ${m.delivered} delivered orders. Peak revenue month was <strong>${monLabel(topMon[0])}</strong> at ${fmtK(topMon[1].rev)}.`;
-    interpretation=`Revenue is recognized upon successful delivery. Pacing workshop intake and maintaining on-time completion directly determines realized revenue.`;
+    interpretation=`Revenue is recognized upon successful delivery. Quoting realistic delivery dates based on current open orders and maintaining on-time completion protects realized revenue.`;
     action=`Review pricing and material costs for high-demand items such as dining tables and sideboards to protect net revenue contribution.`;
     limitation=`Revenue is recognized at quote price upon order delivery; stage payments or financing terms are not recorded in this ledger.`;
     closing=`Month-over-month revenue trends and product breakdowns are available for detailed inspection.`;
@@ -1926,19 +1936,19 @@ function buildStructuredResponse(query){
   else if(intent==='delivery'){
     greeting=`Here is the analysis of on-time delivery performance:`;
     evidence=`MFC achieved an on-time delivery rate of <strong>${fmtPct(m.onTimePct)}</strong> (${m.onTimeCount} delivered on time, ${m.lateCount} delivered late out of ${m.delivered} total delivered orders). Late delivery penalties totaled <strong>$31,117.79</strong>.`;
-    interpretation=`Delivery timeliness is governed by concurrent workload at the time orders are accepted. Orders accepted when open orders reached 14 or more experienced sharp increases in delay rates (82.7% late rate in the 16+ band). Staff resignations (p = 0.77) and material inventory levels (p = 0.989) show no statistically significant relationship with delivery delays.`;
-    action=`Gate order intake and adjust promised lead times whenever concurrent open orders approach 14 or higher.`;
+    interpretation=`Delivery timeliness is strongly associated with concurrent workload at the time orders are accepted. Orders accepted when open orders reached 14 or more experienced sharp increases in delay rates (82.7% late rate in the 16+ band). Staff resignations (p = 0.77) and material inventory levels (p = 0.989) show no significant association found with delivery delays.`;
+    action=`Make the promised delivery date reflect current open orders when quoting.`;
     limitation=`Delivery timeliness is assessed against the scheduled due date established at order creation.`;
     closing=`Refer to the Commitment Risk page to view the late delivery rate across each workload band.`;
     miniChart={type:'doughnut',data:{labels:['On Time','Late'],datasets:[{data:[m.onTimeCount,m.lateCount],backgroundColor:[hexAlpha(COLORS.green,0.8),hexAlpha(COLORS.red,0.8)],borderColor:'transparent'}]},options:{responsive:true,maintainAspectRatio:false,cutout:'55%',plugins:{legend:{position:'right',labels:{color:'#8b9ec7',font:{size:9}}}}}};
   }
   else if(intent==='production'){
-    greeting=`Here is the breakdown of workshop stage hours:`;
-    evidence=`Average planned workshop hours per order: Design <strong>${fmtNum(m.avgDesignH)}h</strong> (20%), Milling <strong>${fmtNum(m.avgMillingH)}h</strong> (30%), Joinery <strong>${fmtNum(m.avgJoinH)}h</strong> (40%), Finishing <strong>${fmtNum(m.avgFinH)}h</strong> (10%).`;
-    interpretation=`Stage hours follow fixed planned workshop allocation ratios of 20% Design, 30% Milling, 40% Joinery, and 10% Finishing rather than independently measured queue bottlenecks. Joinery represents planned labor allocation per piece rather than an empirical workshop bottleneck.`;
-    action=`Maintain balanced stage capacity aligned with overall workshop throughput.`;
+    greeting=`Here is the operational bottleneck and workshop stage analysis:`;
+    evidence=`Average planned workshop hours per order: Design <strong>${fmtNum(m.avgDesignH)}h</strong> (20%), Milling <strong>${fmtNum(m.avgMillingH)}h</strong> (30%), Joinery <strong>${fmtNum(m.avgJoinH)}h</strong> (40%), Finishing <strong>${fmtNum(m.avgFinH)}h</strong> (10%). Across workload bands, post-design wait before production rises from <strong>0.17 to 8.62 days</strong> (Spearman rho = +0.798), while actual production time stays flat.`;
+    interpretation=`The delivery delay builds in the wait queue before production starts, rather than a workshop stage. Recorded stage hours reflect fixed planned labor ratios (20% design, 30% milling, 40% joinery, 10% finishing) rather than measured stage queues. Therefore, the constraint is waiting before production starts, not a workshop stage.`;
+    action=`Make the promised delivery date reflect current open orders when quoting.`;
     limitation=`Stage hours reflect standard planned labor allocations per order rather than physical stage queue times.`;
-    closing=`Stage allocations can be reviewed alongside active orders on the Operations Board.`;
+    closing=`Stage allocations and queue telemetry can be reviewed on the Operations Board and Commitment Risk page.`;
     miniChart={type:'bar',data:{labels:['Design','Milling','Joinery','Finishing'],datasets:[{label:'Avg Hours',data:[m.avgDesignH,m.avgMillingH,m.avgJoinH,m.avgFinH],backgroundColor:[hexAlpha(COLORS.blue,0.75),hexAlpha(COLORS.cyan,0.75),hexAlpha(COLORS.purple,0.9),hexAlpha(COLORS.amber,0.75)],borderRadius:5,borderSkipped:false}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{ticks:{color:'#8b9ec7',font:{size:9}}},y:{ticks:{color:'#8b9ec7',font:{size:9}}}}}};
   }
   else if(intent==='hr'){
@@ -1946,7 +1956,7 @@ function buildStructuredResponse(query){
     const activeDesigners = (DATA.hrRoster||[]).filter(r=>r.role?.toLowerCase()==='designer'&&r.status==='Active').length;
     const activeMakers = (DATA.hrRoster||[]).filter(r=>r.role?.toLowerCase()==='maker'&&r.status==='Active').length;
     evidence=`Active staff: <strong>${m.activeStaff} of ${m.totalStaff}</strong> (${m.resignedStaff} resigned, representing a <strong>${fmtPct(m.resignedStaff/Math.max(m.totalStaff,1)*100)}</strong> turnover rate). Active roles: ${activeDesigners} designers and ${activeMakers} makers.`;
-    interpretation=`Twelve staff resignations occurred over the observation period. Statistical analysis demonstrates that late delivery rates within 21 days of a resignation (12.8%) did not differ significantly from other periods (14.1%, Fisher exact test p = 0.77). Maker departures do not explain delivery delays.`;
+    interpretation=`Twelve staff resignations occurred over the observation period. Statistical analysis demonstrates that late delivery rates within 21 days of a resignation (19 of 148 orders, 12.8%) did not differ significantly from other operating periods (44 of 312 orders, 14.1%; Fisher exact test p = 0.77). No significant association found between maker departures and delivery delays.`;
     action=`Focus HR planning on steady workforce onboarding and maker retention to preserve baseline workshop capacity.`;
     limitation=`HR roster tracks active versus resigned dates without qualitative exit interview records.`;
     closing=`Detailed headcount timelines are available in the Human Resources section.`;
@@ -1957,7 +1967,7 @@ function buildStructuredResponse(query){
     const lowStock=m.materialsList.filter(mat=>m.invByMaterial[mat].currentLevel<5);
     const topC=m.materialsList.reduce((b,mat)=>m.invByMaterial[mat].totalConsumed>m.invByMaterial[b].totalConsumed?mat:b,m.materialsList[0]);
     evidence=`${m.materialsList.length} timber types tracked. Current stock: ${m.materialsList.map(mat=>`${mat}: <strong>${m.invByMaterial[mat].currentLevel}m³</strong>`).join(', ')}. Most consumed: <strong>${topC}</strong> (${m.invByMaterial[topC].totalConsumed}m³ total consumed). Total reorder events: ${m.totalReorderEvents}.`;
-    interpretation=`${lowStock.length?`Stock for <strong>${lowStock.join(', ')}</strong> is below the 5m³ buffer threshold.`: 'Stock levels currently satisfy operating thresholds.'} Statistical testing indicates no significant relationship between material reorders and delivery delays (p = 0.989).`;
+    interpretation=`${lowStock.length?`Stock for <strong>${lowStock.join(', ')}</strong> is below the 5m³ buffer threshold.`: 'Stock levels currently satisfy operating thresholds.'} Statistical testing indicates no significant association found between material reorders and delivery delays (p = 0.989).`;
     action=`Maintain dynamic reorder triggers at 5m³ to ensure continuous material availability.`;
     limitation=`Inventory log tracks volumes in cubic meters; inventory carrying costs are not recorded order-by-order.`;
     closing=`Timber consumption rates can be tracked in the Inventory Log.`;
@@ -1991,9 +2001,9 @@ function buildStructuredResponse(query){
   }
   else if(intent==='correlation'){
     greeting=`Here is the summary of statistical correlation and driver analyses:`;
-    evidence=`Quote price vs acceptance: r = -0.04. Complexity vs acceptance: r = -0.05. Workload at order acceptance vs late delivery: r = +0.68. Resignations within 21 days vs late delivery: Fisher p = 0.77. Material reorders vs late delivery: p = 0.989.`;
-    interpretation=`Empirical testing shows order acceptance is essentially flat across quote prices and design complexity. Delivery delays are strongly associated with concurrent workload at order acceptance (pre-WIP), while staffing turnover and timber reorders show no statistically significant effect.`;
-    action=`Focus operational controls on intake pacing and queue depth management.`;
+    evidence=`Quote price vs acceptance: r = -0.04. Complexity vs acceptance: r = -0.05. Workload at order acceptance vs late delivery: r = +0.68. Resignations within 21 days vs late delivery: Fisher p = 0.77. Material reorders vs late delivery: p = 0.989. Promised lead time vs pre-WIP: rho = -0.002 (p = 0.96); vs complexity: rho = +0.972.`;
+    interpretation=`Empirical testing shows order acceptance is flat at 40.9% across quote prices and design complexity. Delivery delays are strongly associated with concurrent workload at order acceptance (pre-WIP queue buffer), while staffing turnover and timber reorders show no significant association found.`;
+    action=`Make the promised delivery date reflect current open orders when quoting.`;
     limitation=`Correlations identify statistical associations rather than direct individual-level causation.`;
     closing=`Refer to the Correlation Drivers page for driver rankings.`;
   }
@@ -2001,8 +2011,8 @@ function buildStructuredResponse(query){
     // Default summary
     greeting=`Here is the operational performance snapshot for Modern Furniture Co.:`;
     evidence=`Acceptance rate: <strong>${fmtPct(m.acceptanceRate)}</strong> (${m.acceptedOrdersCount}/${m.totalOrders}) · Revenue: <strong>${fmtK(m.totalRev)}</strong> · Net profit: <strong>${fmtK(m.netProfit)}</strong> (${fmtPct(m.profitMargin)} margin) · On-time delivery: <strong>${fmtPct(m.onTimePct)}</strong> (${m.onTimeCount} on time / ${m.lateCount} late) · Active staff: <strong>${m.activeStaff}/${m.totalStaff}</strong>.`;
-    interpretation=`MFC achieved 86.3% on-time delivery across 460 delivered orders. Delays are concentrated in high-workload periods (pre-WIP >= 14, where late rate reaches 82.7% for 16+ open orders). Staff resignations (p = 0.77) and material inventory (p = 0.989) show no significant link to delivery delays.`;
-    action=`Consult concurrent open order bands on the Commitment Risk page to evaluate delivery commitments before accepting new orders.`;
+    interpretation=`MFC achieved 86.3% on-time delivery across 460 delivered orders. Delays are concentrated in high-workload periods (pre-WIP >= 14, where late rate reaches 82.7% for 16+ open orders). Staff resignations (p = 0.77) and material inventory (p = 0.989) show no significant association found with delivery delays.`;
+    action=`Make the promised delivery date reflect current open orders when quoting.`;
     limitation=`Summary aggregates data across the 24-month observation window; individual modules provide granular detail.`;
     closing=`Select any specific operational area for deeper investigation.`;
   }

@@ -19,11 +19,11 @@
       <div class="logo-icon-lg">🪑</div>
       <div><div class="welcome-brand">AnalyticsMCF</div><div class="welcome-brand-sub">Modern Furniture Co. · Melbourne, VIC</div></div>
     </div>
-    <div class="welcome-badge"><span class="badge-dot"></span>AI-Powered · FY 2025</div>
+    <div class="welcome-badge"><span class="badge-dot"></span>AI-Powered · 2025 to 2026 (24 months)</div>
   </div>
   <div class="welcome-hero">
     <h1>Operational Intelligence Platform</h1>
-    <p>Real-time analytics across orders, finance, production, HR, and inventory.</p>
+    <p>Analytics across orders, finance, production, HR, and inventory.</p>
   </div>
   <div class="welcome-cards">
     <div class="welcome-card" id="card-historic">
@@ -44,7 +44,7 @@
       <div class="welcome-card-badge enterprise"><span>☁</span> CUSTOM ENTERPRISE UPLOAD</div>
       <div class="welcome-card-icon">📤</div>
       <h2>Upload Your Own Production CSVs</h2>
-      <p>Upload up to 7 custom operational CSV files. The Data Engineer Agent will automatically classify, profile, and clean them.</p>
+      <p>Upload up to 7 custom operational CSV files. The Data loader will automatically classify and load them.</p>
       <div class="drop-zone" id="drop-zone">
         <div class="drop-zone-icon">📄</div>
         <div class="drop-zone-text">Click to browse or drop CSV files here</div>
@@ -59,7 +59,7 @@
   <div class="dea-panel" id="dea-panel" style="display:none">
     <div class="dea-header">
       <div class="dea-avatar">🛠️</div>
-      <div><div class="dea-title">Data Engineer Agent</div><div class="dea-sub" id="dea-sub">Classifying, profiling and cleaning your uploaded CSVs…</div></div>
+      <div><div class="dea-title">Data loader</div><div class="dea-sub" id="dea-sub">Loading and verifying your uploaded CSVs…</div></div>
       <div class="dea-status-badge" id="dea-status-badge">Processing…</div>
     </div>
     <div class="dea-log" id="dea-log"></div>
@@ -120,7 +120,7 @@
     <div class="topbar-left">
       <div>
         <div class="topbar-title" id="topbar-title">Executive Snapshot</div>
-        <div class="topbar-subtitle" id="topbar-subtitle">FY 2025 · All Divisions</div>
+        <div class="topbar-subtitle" id="topbar-subtitle">2025 to 2026 (24 months) · All Divisions</div>
       </div>
       <!-- Drill-down breadcrumb -->
       <nav class="drill-breadcrumb" id="drill-breadcrumb" style="display:none" aria-label="Drill-down path">
@@ -129,7 +129,7 @@
     </div>
     <div class="topbar-spacer"></div>
     <div class="data-source-chip"><span>📂</span><span id="source-label">MFC Dataset</span></div>
-    <div class="topbar-status"><div class="status-dot"></div>Data Live</div>
+    <div class="topbar-status"><div class="status-dot"></div>Dataset loaded</div>
     <div class="topbar-avatar" title="MFC Admin">M</div>
   </header>
 
@@ -139,8 +139,8 @@
     <div class="page active" id="page-overview">
       <div class="page-header"><h1>Executive Snapshot</h1><p>Company-wide performance overview. <strong>Click any chart segment to drill down.</strong></p></div>
       <div class="hero-banner">
-        <h2>📈 FY 2025 Business Snapshot</h2>
-        <p>Real-time analytics powered by operational data across orders, finance, production, HR, and inventory.</p>
+        <h2>📈 2025 to 2026 (24 months) Business Snapshot</h2>
+        <p>Analytics powered by operational data across orders, finance, production, HR, and inventory.</p>
         <div class="hero-meta">
           <div class="hero-meta-item">📅 Period: <span>2025-01-02 to 2027-01-01 (24 months)</span></div>
           <div class="hero-meta-item">🏙️ Location: <span>Melbourne, VIC</span></div>
@@ -148,12 +148,12 @@
         </div>
       </div>
       <div class="kpi-grid">
-        <div class="kpi-card blue"><span class="kpi-icon">💰</span><div class="kpi-label">Total Revenue</div><div class="kpi-value" id="kpi-revenue">—</div><div class="kpi-change up">↑ FY2025</div></div>
+        <div class="kpi-card blue"><span class="kpi-icon">💰</span><div class="kpi-label">Total Revenue</div><div class="kpi-value" id="kpi-revenue">—</div><div class="kpi-change up">2025 to 2026 (24 months)</div></div>
         <div class="kpi-card green"><span class="kpi-icon">📦</span><div class="kpi-label">Total Orders</div><div class="kpi-value" id="kpi-orders">—</div><div class="kpi-change up">All inquiries</div></div>
         <div class="kpi-card amber"><span class="kpi-icon">✅</span><div class="kpi-label">Acceptance Rate</div><div class="kpi-value" id="kpi-winrate">—</div><div class="kpi-change">Accepted orders</div></div>
         <div class="kpi-card purple"><span class="kpi-icon">⏱️</span><div class="kpi-label">On-Time Delivery</div><div class="kpi-value" id="kpi-ontime">—</div><div class="kpi-change up">Of delivered</div></div>
-        <div class="kpi-card blue"><span class="kpi-icon">💵</span><div class="kpi-label">Net Profit</div><div class="kpi-value" id="kpi-profit">—</div><div class="kpi-change" id="kpi-profit-ch">Revenue – Costs</div></div>
-        <div class="kpi-card red"><span class="kpi-icon">👤</span><div class="kpi-label">Active Staff</div><div class="kpi-value" id="kpi-staff">—</div><div class="kpi-change down">Of original team</div></div>
+        <div class="kpi-card blue"><span class="kpi-icon">💵</span><div class="kpi-label">Revenue minus costs (24 mo)</div><div class="kpi-value" id="kpi-profit">—</div><div class="kpi-change" id="kpi-profit-ch">Margin: —</div></div>
+        <div class="kpi-card red"><span class="kpi-icon">👤</span><div class="kpi-label">Active Staff</div><div class="kpi-value" id="kpi-staff">—</div><div class="kpi-change down">active of 24 ever rostered</div></div>
       </div>
       <div class="charts-grid cols-2" style="margin-bottom:16px">
         <div class="chart-card">
@@ -234,7 +234,7 @@
       <div class="kpi-grid" style="margin-bottom:16px">
         <div class="kpi-card blue"><span class="kpi-icon">💰</span><div class="kpi-label">Total Revenue</div><div class="kpi-value" id="fin-revenue">—</div></div>
         <div class="kpi-card red"><span class="kpi-icon">📉</span><div class="kpi-label">Total Costs</div><div class="kpi-value" id="fin-costs">—</div></div>
-        <div class="kpi-card green"><span class="kpi-icon">📈</span><div class="kpi-label">Net Profit</div><div class="kpi-value" id="fin-profit">—</div></div>
+        <div class="kpi-card green"><span class="kpi-icon">📈</span><div class="kpi-label">Revenue minus costs (24 mo)</div><div class="kpi-value" id="fin-profit">—</div><div class="kpi-change" id="fin-profit-margin">Margin: —</div></div>
         <div class="kpi-card amber"><span class="kpi-icon">📊</span><div class="kpi-label">Profit Margin</div><div class="kpi-value" id="fin-margin">—</div></div>
         <div class="kpi-card purple"><span class="kpi-icon">🔧</span><div class="kpi-label">Avg Daily Cost</div><div class="kpi-value" id="fin-daily-cost">—</div></div>
       </div>
@@ -243,7 +243,7 @@
         <div class="chart-card"><div class="chart-card-header"><div><div class="chart-card-title">Cost Breakdown</div><div class="chart-card-sub">Wages, Overheads, Materials</div></div><span class="chart-badge amber">Pie</span></div><div class="chart-container h-300"><canvas id="chart-cost-breakdown"></canvas></div></div>
       </div>
       <div class="charts-grid cols-2">
-        <div class="chart-card"><div class="chart-card-header"><div><div class="chart-card-title">Monthly Net Profit / Loss</div><div class="chart-card-sub">Per-month P&amp;L bars</div></div><span class="chart-badge green">Bar</span></div><div class="chart-container h-280"><canvas id="chart-monthly-profit"></canvas></div></div>
+        <div class="chart-card"><div class="chart-card-header"><div><div class="chart-card-title">Monthly Revenue minus costs</div><div class="chart-card-sub">Per-month P&amp;L bars</div></div><span class="chart-badge green">Bar</span></div><div class="chart-container h-280"><canvas id="chart-monthly-profit"></canvas></div></div>
         <div class="chart-card"><div class="chart-card-header"><div><div class="chart-card-title">Cumulative Cash Position</div><div class="chart-card-sub">Running total over time</div></div><span class="chart-badge purple">Area</span></div><div class="chart-container h-280"><canvas id="chart-cumulative"></canvas></div></div>
       </div>
     </div>
@@ -252,7 +252,7 @@
     <div class="page" id="page-hr">
       <div class="page-header"><h1>Human Resources</h1><p>Staff roster, skill distribution, leave events, and workforce analytics.</p></div>
       <div class="kpi-grid" style="margin-bottom:16px">
-        <div class="kpi-card green"><span class="kpi-icon">✅</span><div class="kpi-label">Active Staff</div><div class="kpi-value" id="hr-active">—</div></div>
+        <div class="kpi-card green"><span class="kpi-icon">✅</span><div class="kpi-label">Active Staff</div><div class="kpi-value" id="hr-active">—</div><div class="kpi-change">active of 24 ever rostered</div></div>
         <div class="kpi-card red"><span class="kpi-icon">👋</span><div class="kpi-label">Resigned</div><div class="kpi-value" id="hr-resigned">—</div></div>
         <div class="kpi-card blue"><span class="kpi-icon">✏️</span><div class="kpi-label">Designers</div><div class="kpi-value" id="hr-designers">—</div></div>
         <div class="kpi-card amber"><span class="kpi-icon">🔨</span><div class="kpi-label">Makers</div><div class="kpi-value" id="hr-makers">—</div></div>
@@ -342,7 +342,22 @@
           <canvas id="chart-commitment-risk"></canvas>
         </div>
         <div class="chart-caption" style="margin-top:12px;padding:12px 14px;background:rgba(255,255,255,0.03);border-left:3px solid var(--accent);border-radius:4px;font-size:12.5px;line-height:1.5;color:var(--text-secondary)">
-          <strong>Empirical Insight:</strong> Workload drives delivery delays: orders accepted when the shop floor has fewer than 12 active orders achieve near-perfect on-time delivery (0–4.5% late rate), whereas late deliveries escalate sharply to 44.8% at 14–15 orders and 82.7% once active workload reaches 16+ orders.
+          <strong>Empirical Insight:</strong> Workload is strongly associated with delivery delays: orders accepted when the shop floor has fewer than 12 active orders achieve near-perfect on-time delivery (0–4.5% late rate), whereas late deliveries escalate sharply to 44.8% at 14–15 orders and 82.7% once active workload reaches 16+ orders.
+        </div>
+      </div>
+      <div class="chart-card" style="margin-bottom:16px">
+        <div class="chart-card-header">
+          <div>
+            <div class="chart-card-title">Promised vs Actual Lead Time by Pre-WIP Band (Delivered Orders)</div>
+            <div class="chart-card-sub">Mean promised lead time (dueDate − acceptanceDate) vs mean actual lead time (completionDate − acceptanceDate)</div>
+          </div>
+          <span class="chart-badge blue">Lead Time Rule</span>
+        </div>
+        <div class="chart-container h-320">
+          <canvas id="chart-lead-time-bands"></canvas>
+        </div>
+        <div class="chart-caption" style="margin-top:12px;padding:12px 14px;background:rgba(255,255,255,0.03);border-left:3px solid var(--accent);border-radius:4px;font-size:12.5px;line-height:1.5;color:var(--text-secondary)">
+          <strong>Empirical Insight:</strong> Promised dates stay flat while actual lead time rises with workload; the lines cross at 14 to 15 open orders.
         </div>
       </div>
     </div>
@@ -366,7 +381,7 @@
     <div class="page" id="page-correlation">
       <div class="page-header">
         <h1>Correlation Drivers</h1>
-        <p>Ranked analysis of what actually drives your acceptance rate and profitability. <strong>Click any driver row to see its scatter plot.</strong></p>
+        <p>Ranked analysis of factors associated with your acceptance rate and profitability. <strong>Click any driver row to see its scatter plot.</strong></p>
       </div>
       <div class="correlation-disclaimer">ℹ️ Correlation ≠ causation. Coefficients below show statistical association only. Treat as hypothesis generators, not proof.</div>
       <div class="charts-grid cols-2">
@@ -446,7 +461,7 @@
             <div class="ai-q-category">🔮 Future &amp; Risk</div>
             <div class="ai-q-chips">
               <div class="ai-q-chip" onclick="askSuggestion(this)">What's our revenue trend?</div>
-              <div class="ai-q-chip" onclick="askSuggestion(this)">What drives our acceptance rate?</div>
+              <div class="ai-q-chip" onclick="askSuggestion(this)">What is associated with our acceptance rate?</div>
               <div class="ai-q-chip" onclick="askSuggestion(this)">What's our biggest delivery risk?</div>
             </div>
           </div>
