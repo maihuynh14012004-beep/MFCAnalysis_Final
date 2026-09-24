@@ -1375,7 +1375,7 @@ let answerCount=0;
 const feedbackStore=JSON.parse(localStorage.getItem('mfc_ai_feedback')||'[]');
 
 /* ── Google Gemini Integration State ── */
-const PINNED_GEMINI_MODEL = 'gemini-1.5-flash';
+const PINNED_GEMINI_MODEL = 'gemini-3.1-flash-lite';
 let GEMINI_API_KEY = localStorage.getItem('mfc_gemini_api_key') || '';
 
 function updateGeminiStatusUI(){
@@ -1538,7 +1538,7 @@ Privacy: Protect individual customer and employee identities. Aggregate data onl
     ],
     generationConfig: {
       temperature: 0.2,
-      maxOutputTokens: 1000
+      maxOutputTokens: 2000
     }
   };
 
