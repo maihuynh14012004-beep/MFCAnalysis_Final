@@ -1745,6 +1745,11 @@ const INTENT_MAP=[
 function classifyIntent(query){
   const q=query.toLowerCase();
 
+  // Joinery premise: joinery/joiners + bottleneck/hire/hiring checked before production
+  if(/(joinery|joiners?)/i.test(q) && /(bottleneck|hire|hiring)/i.test(q)){
+    return 'premise_joinery_bottleneck';
+  }
+
   // New intents checked BEFORE existing ones
   // a) resign|turnover|staff left + deliver|on-time -> premise check
   if(/(resign|turnover|staff left|staff leav)/i.test(q) && /(deliver|on-time|on time)/i.test(q)){
@@ -1797,6 +1802,26 @@ function getAssumptionWarning(intent){
 ═══════════════════════════════════════════════════ */
 function buildStructuredResponse(query){
   const m=METRICS;
+
+  // 1. Period guard: out-of-bounds year check (< 2025 or >= 2027)
+  const yearMatches = query.match(/\b(19\d\d|20\d\d)\b/g);
+  if (yearMatches) {
+    const years = yearMatches.map(Number);
+    if (years.some(y => y < 2025 || y >= 2027)) {
+      return {
+        type: 'out-of-scope',
+        content: `<p style="margin:0;font-size:13px;line-height:1.5;">The dataset ends on 1 January 2027, so there is no data for that period.</p>`,
+        miniChart: null
+      };
+    }
+  }
+
+  // Check if query mentions a period within dataset
+  const monthRegex = /\b(january|february|march|april|june|july|august|september|october|november|december|jan|feb|mar|apr|jun|jul|aug|sep|sept|oct|nov|dec)\b|\bmay\b(?!\s+(i|we|you|they|he|she|it|be|have|not))\b/i;
+  const quarterRegex = /\b(q[1-4]|quarter)\b/i;
+  const relativePeriodRegex = /\b(last\s+quarter|last\s+month|this\s+year|last\s+year)\b/i;
+  const hasPeriodMention = (yearMatches && yearMatches.length > 0) || quarterRegex.test(query) || monthRegex.test(query) || relativePeriodRegex.test(query);
+
   const intent=classifyIntent(query);
 
   // Privacy guardrail — intercept before anything else
@@ -1939,14 +1964,17 @@ function buildStructuredResponse(query){
   else if(intent==='delivery'){
     greeting=`Here is the analysis of on-time delivery performance:`;
     evidence=`MFC achieved an on-time delivery rate of <strong>${fmtPct(m.onTimePct)}</strong> (${m.onTimeCount} delivered on time, ${m.lateCount} delivered late out of ${m.delivered} total delivered orders). Late delivery penalties totaled <strong>$31,117.79</strong>.`;
-    interpretation=`Delivery timeliness is strongly associated with concurrent workload at the time orders are accepted. Orders accepted when open orders reached 14 or more experienced sharp increases in delay rates (82.7% late rate in the 16+ band). Staff resignations (p = 0.77) and material inventory levels (p = 0.989) show no significant association with delivery delays.`;
+    interpretation=`Delivery timeliness is strongly associated with concurrent workload at the time orders are accepted. Orders accepted when open orders reached 14 or more experienced sharp increases in delay rates (82.7% late rate in the 16+ band). Promised lead times stay flat at about 18 days across all workload bands, while actual lead times rise from 12.0 to 20.4 days, so the promise falls short once open orders reach 14 to 15. Staff resignations (p = 0.77) and material inventory levels (p = 0.989) show no significant association with delivery delays.`;
     action=`Make the promised delivery date reflect current open orders when quoting.`;
     limitation=`Delivery timeliness is assessed against the scheduled due date established at order creation.`;
     closing=`Refer to the Commitment Risk page to view the late delivery rate across each workload band.`;
     miniChart={type:'doughnut',data:{labels:['On Time','Late'],datasets:[{data:[m.onTimeCount,m.lateCount],backgroundColor:[hexAlpha(COLORS.green,0.8),hexAlpha(COLORS.red,0.8)],borderColor:'transparent'}]},options:{responsive:true,maintainAspectRatio:false,cutout:'55%',plugins:{legend:{position:'right',labels:{color:'#8b9ec7',font:{size:9}}}}}};
   }
-  else if(intent==='production'){
-    greeting=`Here is the operational bottleneck and workshop stage analysis:`;
+  else if(intent==='production' || intent==='premise_joinery_bottleneck'){
+    const joineryBanner = intent === 'premise_joinery_bottleneck'
+      ? `<div style="padding:10px 14px;background:rgba(239,68,68,0.12);border:1px solid rgba(239,68,68,0.3);border-radius:8px;margin-bottom:12px;font-size:13px;line-height:1.5;"><strong>Premise Check: Not Supported</strong><br>Joinery hours are planned ratios (40% of each order), not measured queue times, so the data does not show joinery as a bottleneck. The delay builds in the wait before production starts.</div>`
+      : '';
+    greeting=`${joineryBanner}Here is the operational bottleneck and workshop stage analysis:`;
     evidence=`Average planned workshop hours per order: Design <strong>${fmtNum(m.avgDesignH)}h</strong> (20%), Milling <strong>${fmtNum(m.avgMillingH)}h</strong> (30%), Joinery <strong>${fmtNum(m.avgJoinH)}h</strong> (40%), Finishing <strong>${fmtNum(m.avgFinH)}h</strong> (10%). Across workload bands, post-design wait before production rises from <strong>0.17 to 8.62 days</strong> (Spearman rho = +0.798), while actual production time stays flat.`;
     interpretation=`The delivery delay builds in the wait queue before production starts, rather than a workshop stage. Recorded stage hours reflect fixed planned labor ratios (20% design, 30% milling, 40% joinery, 10% finishing) rather than measured stage queues. Therefore, the constraint is waiting before production starts, not a workshop stage.`;
     action=`Make the promised delivery date reflect current open orders when quoting.`;
@@ -2021,10 +2049,13 @@ function buildStructuredResponse(query){
   }
 
   // Build structured content HTML
+  const periodNoticeHtml = hasPeriodMention
+    ? `<div style="padding:8px 12px;background:rgba(59,130,246,0.12);border:1px solid rgba(59,130,246,0.25);border-radius:6px;margin-bottom:10px;font-size:12px;color:var(--text-secondary);line-height:1.5;">Note: these figures cover the full dataset period, 2 January 2025 to 1 January 2027. Filtering by a specific period is not available in this proof of concept.</div>`
+    : '';
   const warningHtml=warning?`<div class="ai-assumption-warning">${warning}</div>`:'';
   const introGreeting = greeting ? `<p style="margin:0 0 10px;font-size:13px;line-height:1.5;">${greeting}</p>` : '';
   const signOff = closing ? `<p style="margin:10px 0 0;font-size:12px;color:var(--text-muted);font-style:italic;">💬 ${closing}</p>` : '';
-  const content=`${warningHtml}
+  const content=`${periodNoticeHtml}${warningHtml}
     ${introGreeting}
     <div class="ai-structured">
       <div class="ai-block evidence-block"><div class="block-label">📊 Evidence</div><div class="block-text">${evidence}</div></div>
