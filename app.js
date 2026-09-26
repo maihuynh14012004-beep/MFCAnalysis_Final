@@ -1,5 +1,5 @@
 /* ═══════════════════════════════════════════════════════════
-   AnalyticsMCF – app.js v3
+   AnalyticsMFC – app.js v3
    Past → Present → Future → Ask AI architecture
    Full drill-down, intent routing, structured AI answers,
    correlation drivers, forecasts, feedback system
